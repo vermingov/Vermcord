@@ -36,3 +36,5 @@ pnpm inject
 cls
 echo Vermcord Installed!
 pause
+
+echo End Of Script
