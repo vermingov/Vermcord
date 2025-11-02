@@ -24,7 +24,7 @@ import { writeFile } from "fs/promises";
 import { join } from "path";
 
 import gitHash from "~git-hash";
-import gitRemote from "~git-remote";
+const gitRemote = "vermingov/Vermcord";
 
 import { serializeErrors, VENCORD_FILES } from "./common";
 
