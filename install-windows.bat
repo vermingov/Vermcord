@@ -1,5 +1,4 @@
 @echo off
-cd data
 REM Check if npm/node is installed
 where npm >nul 2>nul
 if %errorlevel% neq 0 (
