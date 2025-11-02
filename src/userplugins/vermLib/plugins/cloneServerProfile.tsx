@@ -637,7 +637,7 @@ const userContextPatch: NavContextMenuPatchCallback = (
 export default definePlugin({
     name: "CloneServerProfile",
     description:
-        "Right-click a member to clone their server profile (nickname, server avatar, server banner) onto yours in the current guild. ",
+        "Right-click a member to clone their server profile onto yours in the current guild.",
     authors: [{ name: "Vermin", id: 1287307742805229608n }],
 
     start() {
