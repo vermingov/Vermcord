@@ -52,14 +52,23 @@ import {
 } from "@webpack/common";
 
 const CONTRIBUTOR_BADGE =
-    "https://cdn.discordapp.com/emojis/1092089799109775453.png?size=64";
+    "https://cdn.discordapp.com/emojis/1434994932686262282.webp?size=64";
 
 const ContributorBadge: ProfileBadge = {
-    description: "Vencord Contributor",
+    description: "Vermcord Contributor",
     image: CONTRIBUTOR_BADGE,
     position: BadgePosition.START,
     shouldShow: ({ userId }) => shouldShowContributorBadge(userId),
     onClick: (_, { userId }) => openContributorModal(UserStore.getUser(userId)),
+};
+
+// New badge given to every user
+const VermcordUserBadge: ProfileBadge = {
+    description: "Vermcord User",
+    image: "https://cdn.discordapp.com/emojis/1434995254360019146.webp?size=64",
+    position: BadgePosition.START,
+    shouldShow: () => true, // Always show for everyone
+    onClick() {}, // Optionally add behavior
 };
 
 let DonorBadges = {} as Record<
@@ -182,10 +191,12 @@ export default definePlugin({
         try {
             props.userId ??= props.user?.id!;
 
-            return _getBadges(props);
+            // Append VermcordUserBadge to all users' badges
+            const badges = _getBadges(props);
+            return [...badges, VermcordUserBadge];
         } catch (e) {
             new Logger("BadgeAPI#hasBadges").error(e);
-            return [];
+            return [VermcordUserBadge];
         }
     },
 
@@ -280,13 +291,13 @@ export default definePlugin({
                                         <div style={{ padding: "1em" }}>
                                             <Forms.FormText>
                                                 This Badge is a special perk for
-                                                Vencord Donors
+                                                Vermcord Donors
                                             </Forms.FormText>
                                             <Forms.FormText
                                                 className={Margins.top20}
                                             >
                                                 Please consider supporting the
-                                                development of Vencord by
+                                                development of Vermcord by
                                                 becoming a donor. It would mean
                                                 a lot!!
                                             </Forms.FormText>

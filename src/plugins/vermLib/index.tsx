@@ -943,6 +943,7 @@ function FDButton(props: any) {
 export default definePlugin({
     name: "vermLib",
     description: "The brain, heart, and soul of Vermcord.",
+    required: true,
     authors: [Devs.Vermin, Devs.Kravle],
 
     settings,

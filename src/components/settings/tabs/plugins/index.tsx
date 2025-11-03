@@ -1,21 +1,3 @@
-/*
- * Vencord, a modification for Discord's desktop app
- * Copyright (c) 2022 Vendicated and contributors
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
-
 import "./styles.css";
 
 import * as DataStore from "@api/DataStore";
@@ -252,18 +234,29 @@ function PluginSettings() {
 
         if (!pluginFilter(p)) continue;
 
-        const isRequired =
-            p.required ||
-            p.isDependency ||
-            depMap[p.name]?.some((d) => settings.plugins[d].enabled);
-
-        // Check if this is vermLib
+        // Force vermLib to always be handled as a custom plugin
         const isVermLib = p.name === "vermLib";
 
-        if (isRequired) {
+        if (isVermLib) {
+            vermLibPlugin.push(
+                <PluginCard
+                    onRestartNeeded={(name, key) =>
+                        changes.handleChange(`${name}.${key}`)
+                    }
+                    disabled={false}
+                    plugin={p}
+                    isNew={newPlugins?.includes(p.name)}
+                    key={p.name}
+                />,
+            );
+        } else if (
+            p.required ||
+            p.isDependency ||
+            depMap[p.name]?.some((d) => settings.plugins[d].enabled)
+        ) {
             const tooltipText =
                 p.required || !depMap[p.name]
-                    ? "This plugin is required for Vencord to function."
+                    ? "This plugin is required for Vermcord to function."
                     : makeDependencyList(
                           depMap[p.name]?.filter(
                               (d) => settings.plugins[d].enabled,
@@ -285,19 +278,6 @@ function PluginSettings() {
                         />
                     )}
                 </Tooltip>,
-            );
-        } else if (isVermLib) {
-            // Add vermLib to custom plugins array (will be shown first)
-            vermLibPlugin.push(
-                <PluginCard
-                    onRestartNeeded={(name, key) =>
-                        changes.handleChange(`${name}.${key}`)
-                    }
-                    disabled={false}
-                    plugin={p}
-                    isNew={newPlugins?.includes(p.name)}
-                    key={p.name}
-                />,
             );
         } else {
             plugins.push(

@@ -1,150 +1,238 @@
 /*
-
  * Vencord, a Discord client mod
-
- * Copyright (c) 2025
-
+ * vermLib sub-plugin: Random VC Joiner
  * SPDX-License-Identifier: GPL-3.0-or-later
-
  *
-
- * Random VC Joiner: Adds a toolbar button next to Inbox that joins a random accessible voice channel.
-
+ * Adds a small button next to the Inbox button (top-right toolbar)
+ * that, when clicked, joins a random accessible voice/stage channel
+ * across all joined servers.
  */
 
-import definePlugin from "@utils/types";
 import { findByPropsLazy } from "@webpack";
-import { Devs } from "../../../utils/constants";
-
 import {
     ChannelStore,
+    FluxDispatcher,
+    GuildChannelStore,
     GuildStore,
     PermissionStore,
-    SelectedChannelStore,
-    showToast,
+    PermissionsBits,
     Toasts,
+    VoiceStateStore,
+    showToast,
 } from "@webpack/common";
 
+// Types and constants
 const CHANNEL_TYPE_GUILD_VOICE = 2;
 const CHANNEL_TYPE_GUILD_STAGE_VOICE = 13;
-// Permission bit for CONNECT (1 << 20)
-const PERM_CONNECT = 1 << 20;
+
+const BTN_ID = "vermLib-random-vc-joiner-btn";
+const STYLE_ID = "vermLib-rvj-style";
 
 const VoiceActions = findByPropsLazy("selectVoiceChannel", "selectChannel") as {
     selectVoiceChannel(channelId: string): void;
 };
 
-function isVoiceLikeChannel(ch: any): boolean {
-    if (!ch) return false;
+function ensureStyle() {
+    if (document.getElementById(STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+#${BTN_ID} {
+    --rvj-size: 24px;
+    all: unset;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--rvj-size);
+    height: var(--rvj-size);
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background-color .15s ease, transform .08s ease, box-shadow .2s ease;
+    color: var(--interactive-normal);
+    margin-right: 6px; /* spacing from Inbox */
+}
+#${BTN_ID}:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--interactive-hover);
+    box-shadow: 0 0 12px rgba(88,101,242,.25);
+}
+#${BTN_ID}:active {
+    transform: translateY(1px) scale(.98);
+}
+#${BTN_ID} .rvj-icon {
+    width: 20px;
+    height: 20px;
+    pointer-events: none;
+    display: inline-block;
+}
+#${BTN_ID}[data-state="busy"] {
+    filter: grayscale(.4);
+    opacity: .7;
+    pointer-events: none;
+}
+`;
+    document.head.appendChild(style);
+}
+
+function makeIcon() {
+    // Simple "shuffle/dice-ish" mixed icon
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("class", "rvj-icon");
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute(
+        "d",
+        // Material-ish shuffle icon with slight tweaks
+        "M14.5 4l2.5 2.5L14.5 9H17l4-4-4-4h-2.5zM4 20h2l6.59-6.59-1.42-1.42L4 18v2zm0-14h1.59l4.7 4.7 1.41-1.41L7 4H4v2zm10 9l3.5 3.5H20v-2h-1.5L15 13l-1 1z",
+    );
+    path.setAttribute("fill", "currentColor");
+    svg.appendChild(path);
+    return svg;
+}
+
+function createButton(onClick: () => void) {
+    const btn = document.createElement("button");
+    btn.id = BTN_ID;
+    btn.setAttribute("type", "button");
+    btn.setAttribute("aria-label", "Join a random voice channel");
+    btn.setAttribute("title", "Join a random voice channel");
+
+    btn.appendChild(makeIcon());
+    btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+    });
+
+    return btn;
+}
+
+function findInboxButton(): HTMLElement | null {
+    // Prefer explicit Inbox aria-label (common on English locales)
+    let el =
+        document.querySelector<HTMLElement>(
+            '[role="button"][aria-label="Inbox"]',
+        ) ||
+        document.querySelector<HTMLElement>(
+            'div[role="button"][aria-label="Inbox"]',
+        );
+
+    // Fallback: Discord sometimes tags the inbox button with data-jump-section="global"
+    if (!el) {
+        el = document.querySelector<HTMLElement>(
+            '[role="button"][data-jump-section="global"]',
+        );
+    }
+
+    // As a final fallback, try to locate by SVG path used in Inbox icon (fragile; best-effort)
+    if (!el) {
+        const candidates = Array.from(
+            document.querySelectorAll<HTMLElement>('div[role="button"]'),
+        );
+        el =
+            candidates.find((n) => {
+                const label = n.getAttribute("aria-label") ?? "";
+                // Any localized "Inbox" equivalent often contains the idea of "mentions" or "inbox".
+                // We keep it strict to avoid mis-detection.
+                return /inbox/i.test(label);
+            }) ?? null;
+    }
+
+    return el ?? null;
+}
+
+function isVoiceLike(ch: any) {
     return (
-        ch.type === CHANNEL_TYPE_GUILD_VOICE ||
-        ch.type === CHANNEL_TYPE_GUILD_STAGE_VOICE
+        ch &&
+        (ch.type === CHANNEL_TYPE_GUILD_VOICE ||
+            ch.type === CHANNEL_TYPE_GUILD_STAGE_VOICE)
     );
 }
 
-function shuffleInPlace<T>(arr: T[]) {
-    for (let i = arr.length - 1; i > 0; i--) {
-        const j = (Math.random() * (i + 1)) | 0;
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-}
-
-function canConnect(ch: any): boolean {
+function canView(channel: any) {
     try {
-        const can = (PermissionStore as any)?.can;
-        if (typeof can !== "function") return true; // best-effort
-
-        return !!can(PERM_CONNECT, ch);
+        return PermissionStore.can(PermissionsBits.VIEW_CHANNEL, channel);
     } catch {
-        return true;
+        return false;
     }
 }
 
-function collectAllVoiceChannels(): Array<any> {
-    const chans: any[] = [];
+function canConnect(channel: any) {
     try {
-        const guilds = GuildStore?.getGuilds?.();
-        const guildIds: string[] = guilds ? Object.keys(guilds) : [];
+        const CONNECT = (PermissionsBits as any).CONNECT as bigint | undefined;
+        if (!CONNECT) return true; // If we cannot detect bit, be optimistic and rely on VoiceActions to fail if not allowed.
+        return PermissionStore.can(CONNECT, channel);
+    } catch {
+        return false;
+    }
+}
 
-        // Several possible APIs that Discord might expose; try in order
-        const GCS: any = ChannelStore as any;
-        const getChannelsFns: Array<((g: string) => any) | null> = [
-            GCS && typeof GCS.getChannels === "function"
-                ? (gid: string) => GCS.getChannels(gid)
-                : null,
-            GCS &&
-            typeof (GCS as any).getMutableGuildChannelsForGuild === "function"
-                ? (gid: string) =>
-                      (GCS as any).getMutableGuildChannelsForGuild(gid)
-                : null,
-        ].filter(Boolean) as Array<(g: string) => any>;
+function isFull(channel: any) {
+    try {
+        const limit = (channel?.userLimit ?? channel?.user_limit) as
+            | number
+            | undefined;
+        if (!limit || limit <= 0) return false;
 
-        for (const gid of guildIds) {
-            let group: any = null;
-            for (const fn of getChannelsFns) {
-                try {
-                    group = fn(gid);
-                    if (group) break;
-                } catch {}
-            }
-            // Attempt to extract voice channels from various possible shapes
-            if (group) {
-                // Common: group.VOICE.channels: Array<{ channel }>
-                const maybeVoice = group.VOICE ?? group.voice ?? null;
+        const states =
+            VoiceStateStore.getVoiceStatesForChannel?.(channel.id) ?? {};
+        const count = Object.keys(states).length;
+        return count >= limit;
+    } catch {
+        return false;
+    }
+}
 
-                if (
-                    maybeVoice?.channels &&
-                    Array.isArray(maybeVoice.channels)
-                ) {
-                    for (const c of maybeVoice.channels) {
-                        const ch = c.channel ?? c;
-                        if (isVoiceLikeChannel(ch)) chans.push(ch);
-                    }
-                } else if (Array.isArray(maybeVoice)) {
-                    for (const ch of maybeVoice) {
-                        if (isVoiceLikeChannel(ch)) chans.push(ch);
-                    }
-                } else {
-                    // Fallback: iterate over possible props
-                    for (const key of Object.keys(group)) {
-                        const val = group[key];
-                        if (!val) continue;
-                        if (Array.isArray(val)) {
-                            for (const ch of val) {
-                                const real = ch.channel ?? ch;
-                                if (isVoiceLikeChannel(real)) chans.push(real);
-                            }
-                        } else if (val && Array.isArray(val.channels)) {
-                            for (const ch of val.channels) {
-                                const real = ch.channel ?? ch;
-                                if (isVoiceLikeChannel(real)) chans.push(real);
-                            }
-                        }
-                    }
-                }
+function collectJoinableVoiceChannels(): Array<any> {
+    const result: Array<any> = [];
+
+    try {
+        const guilds = GuildStore.getGuilds?.() ?? {};
+        for (const g of Object.values<any>(guilds)) {
+            const all = GuildChannelStore.getChannels?.(g.id);
+            // VOCAL usually contains voice/stage entries of shape { channel, comparator }
+            const voc: Array<{ channel: any }> = Array.isArray(all?.VOCAL)
+                ? all!.VOCAL
+                : [];
+
+            for (const entry of voc) {
+                const ch = entry?.channel;
+                if (!isVoiceLike(ch)) continue;
+                if (!canView(ch)) continue;
+                if (!canConnect(ch)) continue;
+                if (isFull(ch)) continue;
+
+                result.push(ch);
             }
         }
     } catch {
-        // best-effort
+        // ignore and return whatever we got
     }
 
-    // As an additional safety, dedupe by id
-    const seen = new Set<string>();
-    const unique: any[] = [];
-    for (const ch of chans) {
-        const id = ch?.id;
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-        unique.push(ch);
+    // As a fallback if VOCAL was empty or missing, scan all channels in ChannelStore
+    if (!result.length) {
+        try {
+            const map = (ChannelStore as any)._channelMap ?? {};
+            for (const ch of Object.values<any>(map)) {
+                if (!isVoiceLike(ch)) continue;
+                if (!canView(ch)) continue;
+                if (!canConnect(ch)) continue;
+                if (isFull(ch)) continue;
+                result.push(ch);
+            }
+        } catch {
+            /* ignore */
+        }
     }
-    return unique;
+
+    return result;
 }
 
-async function tryJoinRandomVC() {
+function joinRandomVC() {
     try {
-        const all = collectAllVoiceChannels().filter(canConnect);
-        if (!all.length) {
+        const candidates = collectJoinableVoiceChannels();
+        if (!candidates.length) {
             showToast(
                 "No accessible voice channels found",
                 Toasts.Type.FAILURE,
@@ -152,215 +240,143 @@ async function tryJoinRandomVC() {
             return;
         }
 
-        shuffleInPlace(all);
-
-        showToast(
-            "Trying to join a random voice channel…",
-            Toasts.Type.MESSAGE,
-        );
-
-        for (const ch of all) {
-            try {
-                VoiceActions.selectVoiceChannel(ch.id);
-                // Wait a short moment and verify we actually joined
-                const ok = await waitForJoin(ch.id, 800);
-                if (ok) {
-                    const guildName = safeGuildName(ch.guild_id);
-                    const name = ch.name || "Voice";
-                    showToast(
-                        `Joined ${name}${guildName ? ` — ${guildName}` : ""}`,
-                        Toasts.Type.SUCCESS,
-                    );
-                    return;
-                }
-            } catch {
-                // Try next
-            }
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        try {
+            VoiceActions.selectVoiceChannel(pick.id);
+            showToast(`Joining: #${pick.name ?? pick.id}`, Toasts.Type.SUCCESS);
+        } catch {
+            showToast(
+                "Failed to join the selected voice channel",
+                Toasts.Type.FAILURE,
+            );
         }
-
+    } catch {
         showToast(
-            "Failed to join any random voice channel",
+            "Something went wrong picking a channel",
             Toasts.Type.FAILURE,
         );
-    } catch {
-        showToast("Random VC Joiner encountered an error", Toasts.Type.FAILURE);
     }
 }
 
-function safeGuildName(gid?: string | null) {
-    try {
-        if (!gid) return "";
-        const g = GuildStore?.getGuild?.(gid);
-        return g?.name ?? "";
-    } catch {
-        return "";
-    }
-}
-
-function waitForJoin(targetId: string, timeoutMs: number): Promise<boolean> {
-    const start = Date.now();
-    return new Promise((res) => {
-        const tick = () => {
-            try {
-                const cur = SelectedChannelStore?.getVoiceChannelId?.();
-                if (cur === targetId) return res(true);
-                if (Date.now() - start >= timeoutMs) return res(false);
-                setTimeout(tick, 100);
-            } catch {
-                res(false);
-            }
-        };
-        tick();
-    });
-}
-
-// ---------- UI Injection (near Inbox button) ----------
-
-const BUTTON_ID = "verm-random-vc-btn";
+let mountedBtn: HTMLButtonElement | null = null;
 let mo: MutationObserver | null = null;
+let hb: number | null = null;
 
-function createIconSVG(): SVGElement {
-    // Simple dice icon to convey "random"
-    const svgNS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("width", "24");
-    svg.setAttribute("height", "24");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("aria-hidden", "true");
+const REINJECT_EVENTS = [
+    "CHANNEL_SELECT",
+    "SIDEBAR_VIEW_GUILD",
+    "GUILD_CREATE",
+    "GUILD_DELETE",
+    "CONNECTION_OPEN",
+    "WINDOW_FOCUS",
+] as const;
 
-    const path = document.createElementNS(svgNS, "path");
-    path.setAttribute("fill", "currentColor");
-    path.setAttribute(
-        "d",
-        // Dice-like icon
-        "M4 3h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm1.75 3.5a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5zM9 8.75A1.25 1.25 0 1 0 9 6.25a1.25 1.25 0 0 0 0 2.5zm-3.25 6a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5zM9 14.75a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5zm10.5-9.5h1.75A1.75 1.75 0 0 1 23 7.0v1.75A3.25 3.25 0 0 1 19.75 12H18v-1.5h1.75c.966 0 1.75-.784 1.75-1.75V7a.25.25 0 0 0-.25-.25H19.5V5.25z",
-    );
-    svg.appendChild(path);
-    return svg;
+function ensureInjected() {
+    ensureStyle();
+
+    // If already there and still next to an Inbox button, leave it
+    const existing = document.getElementById(
+        BTN_ID,
+    ) as HTMLButtonElement | null;
+    const inbox = findInboxButton();
+
+    if (existing && inbox && existing.parentElement === inbox.parentElement) {
+        return;
+    }
+
+    // Clean up stale copies
+    existing?.remove();
+
+    if (!inbox || !inbox.parentElement) return;
+
+    const parent = inbox.parentElement;
+    const btn = createButton(() => {
+        // lock to prevent spam-click to multiple joins
+        btn.dataset.state = "busy";
+        Promise.resolve()
+            .then(() => joinRandomVC())
+            .finally(() => {
+                delete btn.dataset.state;
+            });
+    });
+
+    parent.insertBefore(btn, inbox); // place immediately to the left of Inbox
+    mountedBtn = btn;
 }
 
-function cloneInboxClasses(inboxBtn: HTMLElement, el: HTMLElement) {
+function cleanup() {
+    mountedBtn?.remove();
+    mountedBtn = null;
+
+    const style = document.getElementById(STYLE_ID);
+    style?.remove();
+}
+
+function reinjectHandler() {
+    ensureInjected();
+}
+
+function subscribeReinjection() {
     try {
-        el.className = inboxBtn.className; // copy all hashed classes for consistent style
-        // Copy some sizing styles if present
-        const cs = getComputedStyle(inboxBtn);
-        el.style.width = cs.width;
-        el.style.height = cs.height;
-        el.style.display = cs.display || "inline-flex";
-        el.style.alignItems = cs.alignItems || "center";
-        el.style.justifyContent = cs.justifyContent || "center";
+        for (const ev of REINJECT_EVENTS) {
+            FluxDispatcher.subscribe(ev, reinjectHandler);
+        }
     } catch {
-        // ignore
+        /* ignore */
     }
 }
 
-function buildRandomButton(inboxBtn: HTMLElement): HTMLButtonElement {
-    const btn = document.createElement("button");
-    btn.id = BUTTON_ID;
-    btn.type = "button";
-    btn.setAttribute("aria-label", "Join Random VC");
-    btn.setAttribute("tabindex", "0");
-    btn.style.cursor = "pointer";
-
-    // Copy className/style to match Discord look-and-feel
-    cloneInboxClasses(inboxBtn, btn);
-
-    // Try to mimic inner icon wrapper classes if present
-    const inboxInner = inboxBtn.firstElementChild as HTMLElement | null;
-    const inner = document.createElement("div");
-    if (inboxInner) inner.className = inboxInner.className;
-    inner.appendChild(createIconSVG());
-    btn.appendChild(inner);
-
-    btn.addEventListener("keydown", (e) => {
-        tryJoinRandomVC();
-    });
-
-    // Prevent focus ring anomalies
-    btn.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            tryJoinRandomVC();
-        }
-    });
-
-    // Spacing: place to the immediate left of Inbox
-    btn.style.marginRight = "6px";
-
-    return btn;
-}
-
-function ensureButtonNearInbox(root: ParentNode = document) {
+function unsubscribeReinjection() {
     try {
-        const inbox: HTMLElement | null =
-            (root.querySelector(
-                'button[aria-label="Inbox"]',
-            ) as HTMLElement | null) ||
-            (root.querySelector(
-                '[aria-label="Inbox"] button',
-            ) as HTMLElement | null) ||
-            null;
-
-        if (!inbox || !inbox.parentElement) return;
-
-        // If already injected for this toolbar instance, skip
-        if (inbox.parentElement.querySelector(`#${BUTTON_ID}`)) return;
-
-        const btn = buildRandomButton(inbox);
-        inbox.parentElement.insertBefore(btn, inbox);
+        for (const ev of REINJECT_EVENTS) {
+            FluxDispatcher.unsubscribe(ev, reinjectHandler);
+        }
     } catch {
-        // ignore
+        /* ignore */
     }
 }
 
-function startObserving() {
-    stopObserving();
-
-    mo = new MutationObserver((mutations) => {
-        for (const m of mutations) {
-            if (m.type === "childList") {
-                for (const n of m.addedNodes) {
-                    if (!(n instanceof HTMLElement)) continue;
-                    // Search within added subtree
-                    ensureButtonNearInbox(n);
-                }
-            }
+function startObserve() {
+    mo = new MutationObserver(() => {
+        // If we lost the button or Inbox was re-rendered, re-inject
+        const inbox = findInboxButton();
+        const btn = document.getElementById(BTN_ID);
+        if (!inbox || !btn || btn.parentElement !== inbox.parentElement) {
+            ensureInjected();
         }
-        // Also check document in case of soft re-render without nodes passed
-        ensureButtonNearInbox(document);
     });
-
-    mo.observe(document.body, {
-        childList: true,
-        subtree: true,
-    });
-
-    // Initial attempt
-    ensureButtonNearInbox(document);
+    mo.observe(document.body, { subtree: true, childList: true });
 }
 
-function stopObserving() {
-    try {
-        mo?.disconnect();
-    } catch {}
+function stopObserve() {
+    mo?.disconnect();
     mo = null;
-    // Remove stray buttons
-    try {
-        document.querySelectorAll(`#${BUTTON_ID}`).forEach((el) => el.remove());
-    } catch {}
 }
 
-export default definePlugin({
+export default {
     name: "RandomVCJoiner",
-    description:
-        "Adds a button next to Inbox that joins a random accessible voice channel across all your servers.",
-    authors: [Devs.Vermin, Devs.Kravle],
 
     start() {
-        startObserving();
+        // Initial delayed inject to give the app time to mount UI
+        setTimeout(() => ensureInjected(), 500);
+
+        // Observe DOM rerenders
+        startObserve();
+
+        // Subscribe to common navigation/state change events
+        subscribeReinjection();
+
+        // Heartbeat reinjection in case of route changes that dodge our observer
+        hb = window.setInterval(() => ensureInjected(), 1500);
     },
 
     stop() {
-        stopObserving();
+        if (hb) {
+            clearInterval(hb);
+            hb = null;
+        }
+        stopObserve();
+        unsubscribeReinjection();
+        cleanup();
     },
-});
+} as const;
