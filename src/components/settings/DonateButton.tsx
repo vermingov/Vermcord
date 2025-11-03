@@ -32,7 +32,7 @@ export default function DonateButton({
             color={color}
             onClick={() =>
                 VencordNative.native.openExternal(
-                    "https://r.mtdv.me/giveaways/123123213",
+                    "https://www.youtube.com/watch?v=xvFZjo5PgG0",
                 )
             }
             className="vc-donate-button"

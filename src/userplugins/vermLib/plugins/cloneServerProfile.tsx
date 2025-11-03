@@ -5,11 +5,8 @@
  */
 
 import { NavContextMenuPatchCallback } from "@api/ContextMenu";
-
 import definePlugin from "@utils/types";
-
 import type { User } from "@vencord/discord-types";
-
 import {
     Menu as CtxMenu,
     React,
@@ -20,27 +17,19 @@ import {
 } from "@webpack/common";
 
 const CSP_CONFIG = {
-    // If true, try media.discordapp.net as a fallback for image fetches when the CDN blocks CORS.
     useMediaProxy: true,
-    // Optional external proxy base that performs server-side fetch and returns image bytes.
-    // Leave empty to disable. Example: "https://r.jina.ai/http://"
     proxyBase: "",
 } as const;
 
-// Server-side Nitro/permission notes:
-// - Setting a guild nickname requires you to have permission to change your own nickname in that guild.
-// - Setting a server-specific avatar or banner typically requires Nitro and that the guild allows server customizations.
-// - REST may respond with 401/403 if you lack permissions or are not authenticated; we surface clear reasons where possible.
 type UserContextProps = {
     user?: User;
     guildId?: string;
-    // channel?: Channel; // not required here
 };
 
 type GuildMemberProfile = {
     nick?: string | null;
-    avatar?: string | null; // guild avatar hash
-    banner?: string | null; // guild banner hash
+    avatar?: string | null;
+    banner?: string | null;
 };
 
 type FetchedProfile = {
@@ -82,7 +71,6 @@ function userBannerCdnUrl(userId: string, bannerHash: string) {
 }
 
 async function fetchAsDataUri(url: string): Promise<string> {
-    // Try direct fetch first; if CORS fails, try media proxy and then optional external proxy.
     const attempts: string[] = [];
     const tryFetch = async (u: string) => {
         attempts.push(u);
@@ -96,11 +84,8 @@ async function fetchAsDataUri(url: string): Promise<string> {
 
         return await new Promise<string>((resolve, reject) => {
             const fr = new FileReader();
-
             fr.onloadend = () => resolve(fr.result as string);
-
             fr.onerror = reject;
-
             fr.readAsDataURL(blob);
         });
     };
@@ -138,8 +123,6 @@ async function fetchAsDataUri(url: string): Promise<string> {
 }
 
 async function getTargetGuildProfile(targetUserId: string, guildId: string) {
-    // This client API is used by Discord to render profiles in guild context.
-    // Example: GET /users/{userId}/profile?guild_id={guildId}&with_mutual_guilds=false
     console.log("[CloneServerProfile] Fetching target profile", {
         targetUserId,
         guildId,
@@ -154,7 +137,6 @@ async function getTargetGuildProfile(targetUserId: string, guildId: string) {
 }
 
 async function setMyNick(guildId: string, nick: string | null | undefined) {
-    // PATCH /guilds/{guildId}/members/@me
     await RestAPI.patch?.({
         url: `/guilds/${guildId}/members/@me`,
         body: { nick: nick ?? "" },
@@ -166,8 +148,6 @@ async function setMyGuildProfileMedia(
     avatarDataUrl?: string | null,
     bannerDataUrl?: string | null,
 ) {
-    // PATCH /users/@me/guilds/{guildId}/profile
-    // Only send fields we intend to modify to avoid resetting unrelated values.
     const body: Record<string, unknown> = {};
     if (avatarDataUrl !== undefined) body.avatar = avatarDataUrl;
     if (bannerDataUrl !== undefined) body.banner = bannerDataUrl;
@@ -178,7 +158,7 @@ async function setMyGuildProfileMedia(
             { guildId },
         );
         return;
-    } // nothing to change
+    }
 
     console.log("[CloneServerProfile] Setting guild profile media", {
         guildId,
@@ -188,7 +168,6 @@ async function setMyGuildProfileMedia(
 
     await RestAPI.patch?.({
         url: `/users/@me/guilds/${guildId}/profile`,
-
         body,
     });
 }
@@ -196,8 +175,8 @@ async function setMyGuildProfileMedia(
 function getGuildIdFromLocation(): string | null {
     try {
         const parts = location.pathname.split("/");
-        if (parts[1] === "channels" && parts[2] && parts[2] !== "@me") {
-            return parts[2];
+        if (parts === "channels" && parts && parts !== "@me") {
+            return parts;
         }
     } catch {}
     return null;
@@ -228,7 +207,6 @@ const userContextPatch: NavContextMenuPatchCallback = (
                         "Open this menu inside a server (guild) — no guild context available.",
                         Toasts.Type.FAILURE,
                     );
-
                     return;
                 }
 
@@ -242,9 +220,7 @@ const userContextPatch: NavContextMenuPatchCallback = (
                 });
 
                 let clonedNick = false;
-
                 let clonedAvatar = false;
-
                 let clonedBanner = false;
                 const failures: string[] = [];
 
@@ -256,14 +232,14 @@ const userContextPatch: NavContextMenuPatchCallback = (
                     );
                     const gm = target?.guild_member;
                     if (!gm) {
-                        // No server-specific profile found; we'll fall back to global user data instead of aborting.
                         console.warn(
                             "[CloneServerProfile] Target has no guild_member in fetched profile; using global fallbacks",
                             { targetUserId: user.id, effectiveGuildId },
                         );
                     }
                     const targetUser: any = (target as any)?.user ?? {};
-                    // Prefer server-specific values; otherwise fall back to global display/username and global avatar/banner
+
+                    // Prefer server-specific values; otherwise fall back to global
                     const targetNick =
                         gm?.nick ??
                         targetUser.global_name ??
@@ -273,6 +249,7 @@ const userContextPatch: NavContextMenuPatchCallback = (
                         gm?.avatar ?? targetUser.avatar ?? null;
                     const targetBannerHash =
                         gm?.banner ?? targetUser.banner ?? null;
+
                     console.log(
                         "[CloneServerProfile] Target profile values (with fallback)",
                         { targetNick, targetAvatarHash, targetBannerHash },
@@ -304,7 +281,6 @@ const userContextPatch: NavContextMenuPatchCallback = (
                                 "[CloneServerProfile] Failed to set nickname",
                                 { effectiveGuildId, targetNick, err },
                             );
-                            // ignore, show granular result after
                         }
                     }
 
@@ -312,34 +288,33 @@ const userContextPatch: NavContextMenuPatchCallback = (
                     let avatarDataUrl: string | null | undefined = undefined;
                     let bannerDataUrl: string | null | undefined = undefined;
 
-                    // If target has a server avatar, fetch and convert to data URI
+                    // ✅ FIX #1: Use current user's ID (me.id) for guild CDN URLs
+                    const myUserId = me?.id;
+                    if (!myUserId) {
+                        throw new Error("Failed to get current user ID");
+                    }
 
+                    // Avatar handling
                     if (targetAvatarHash) {
                         let avatarCdnUrl: string = "";
                         try {
                             console.log(
                                 "[CloneServerProfile] Building avatar CDN URL",
-
                                 {
                                     effectiveGuildId,
-
-                                    targetUserId: user.id,
-
+                                    myUserId, // ✅ Use current user's ID
                                     targetAvatarHash,
                                 },
                             );
 
                             avatarCdnUrl = guildAvatarCdnUrl(
                                 effectiveGuildId,
-
-                                user.id,
-
+                                myUserId, // ✅ FIXED: Was user.id (target's ID)
                                 targetAvatarHash,
                             );
 
                             console.log(
                                 "[CloneServerProfile] Fetching avatar CDN",
-
                                 { url: avatarCdnUrl },
                             );
 
@@ -348,17 +323,12 @@ const userContextPatch: NavContextMenuPatchCallback = (
                                 "[CloneServerProfile] Avatar fetched as data URI",
                             );
                         } catch (err) {
-                            // failed to fetch avatar; skip
-
                             avatarDataUrl = undefined;
-
                             failures.push(
                                 "server avatar (download failed: CORS or unavailable)",
                             );
-
                             console.warn(
                                 "[CloneServerProfile] Failed to fetch avatar CDN",
-
                                 { url: avatarCdnUrl, err },
                             );
                         }
@@ -394,38 +364,31 @@ const userContextPatch: NavContextMenuPatchCallback = (
                                 );
                             }
                         } else {
-                            avatarDataUrl = undefined; // no global avatar available
+                            avatarDataUrl = undefined;
                         }
                     }
 
-                    // If target has a server banner, fetch and convert to data URI
-
+                    // Banner handling
                     if (targetBannerHash) {
                         let bannerCdnUrl: string = "";
                         try {
                             console.log(
                                 "[CloneServerProfile] Building banner CDN URL",
-
                                 {
                                     effectiveGuildId,
-
-                                    targetUserId: user.id,
-
+                                    myUserId, // ✅ Use current user's ID
                                     targetBannerHash,
                                 },
                             );
 
                             bannerCdnUrl = guildBannerCdnUrl(
                                 effectiveGuildId,
-
-                                user.id,
-
+                                myUserId, // ✅ FIXED: Was user.id (target's ID)
                                 targetBannerHash,
                             );
 
                             console.log(
                                 "[CloneServerProfile] Fetching banner CDN",
-
                                 { url: bannerCdnUrl },
                             );
 
@@ -434,17 +397,12 @@ const userContextPatch: NavContextMenuPatchCallback = (
                                 "[CloneServerProfile] Banner fetched as data URI",
                             );
                         } catch (err) {
-                            // failed to fetch banner; skip
-
                             bannerDataUrl = undefined;
-
                             failures.push(
                                 "server banner (download failed: CORS or unavailable)",
                             );
-
                             console.warn(
                                 "[CloneServerProfile] Failed to fetch banner CDN",
-
                                 { url: bannerCdnUrl, err },
                             );
                         }
@@ -480,7 +438,7 @@ const userContextPatch: NavContextMenuPatchCallback = (
                                 );
                             }
                         } else {
-                            bannerDataUrl = undefined; // no global banner available
+                            bannerDataUrl = undefined;
                         }
                     }
 
@@ -501,7 +459,6 @@ const userContextPatch: NavContextMenuPatchCallback = (
                             await setMyGuildProfileMedia(
                                 effectiveGuildId,
                                 avatarDataUrl,
-
                                 bannerDataUrl,
                             );
 
@@ -514,14 +471,13 @@ const userContextPatch: NavContextMenuPatchCallback = (
                         } catch (err) {
                             console.warn(
                                 "[CloneServerProfile] Failed to set both media, attempting partial",
-
                                 { err },
                             );
                             failures.push(
                                 "server avatar and banner (combined request failed)",
                             );
 
-                            // If setting both failed, try each individually so partial success is possible
+                            // Try each individually for partial success
                             if (avatarDataUrl !== undefined) {
                                 try {
                                     console.log(
@@ -605,7 +561,6 @@ const userContextPatch: NavContextMenuPatchCallback = (
                     if (parts.length > 0 && failures.length === 0) {
                         showToast(
                             `Cloned ${parts.join(", ")} from ${user.username}.`,
-
                             Toasts.Type.SUCCESS,
                         );
                     } else if (parts.length > 0 && failures.length > 0) {

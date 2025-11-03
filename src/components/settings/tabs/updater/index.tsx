@@ -61,7 +61,7 @@ function Updater() {
 
             <FormSwitch
                 title="Automatically update"
-                description="Automatically update Vencord without confirmation prompt"
+                description="Automatically update Vermcord without confirmation prompt"
                 value={settings.autoUpdate}
                 onChange={(v: boolean) => (settings.autoUpdate = v)}
             />

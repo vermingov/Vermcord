@@ -19,7 +19,7 @@ const DEBUG = true;
 
 const BEACON = "️";
 
-const VERMLIB_BADGE_TEXT = "VERMLIB USER";
+const VERMLIB_BADGE_TEXT = "VERMCORD USER";
 const VERMLIB_BADGE_CLASS = "vlAwesomeUserBadge";
 const VERMLIB_BADGE_STYLE_ID = "vl-awesome-user-badge-style";
 

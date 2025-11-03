@@ -52,9 +52,9 @@ const VENNIE_DONATOR_IMAGE =
 const COZY_CONTRIB_IMAGE =
     "https://cdn.discordapp.com/emojis/1026533070955872337.png";
 const DONOR_BACKGROUND_IMAGE =
-    "https://media.discordapp.net/stickers/1311070116305436712.png?size=2048";
+    "https://cdn.discordapp.com/attachments/1395049155478552679/1434696961302331492/image-removebg-preview2.png?ex=6909452a&is=6907f3aa&hm=a0d705c9de06a0b234e365d4d537381fc42bef5f80d3e89ee161fabfbd707dc7&";
 const CONTRIB_BACKGROUND_IMAGE =
-    "https://media.discordapp.net/stickers/1311070166481895484.png?size=2048";
+    "https://cdn.discordapp.com/attachments/1395049155478552679/1434696961302331492/image-removebg-preview2.png?ex=6909452a&is=6907f3aa&hm=a0d705c9de06a0b234e365d4d537381fc42bef5f80d3e89ee161fabfbd707dc7&";
 
 type KeysOfType<Object, Type> = {
     [K in keyof Object]: Object[K] extends Type ? K : never;
@@ -172,17 +172,17 @@ function VencordSettings() {
                     description="You can manage your perks at any time by messaging @vending.machine."
                     cardImage={VENNIE_DONATOR_IMAGE}
                     backgroundImage={DONOR_BACKGROUND_IMAGE}
-                    backgroundColor="#ED87A9"
+                    backgroundColor="#ffcccc"
                 >
                     <DonateButtonComponent />
                 </SpecialCard>
             ) : (
                 <SpecialCard
-                    title="Vermcord"
-                    description="Thank you for using Vermcord!"
+                    title={<b>Vermcord</b>}
+                    description={"Thank you for using Vermcord!"}
                     cardImage={donateImage}
                     backgroundImage={DONOR_BACKGROUND_IMAGE}
-                    backgroundColor="#c3a3ce"
+                    backgroundColor="#ffcccc"
                 >
                     <DonateButtonComponent />
                 </SpecialCard>

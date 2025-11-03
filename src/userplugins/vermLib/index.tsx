@@ -559,38 +559,6 @@ function Dashboard() {
         </div>
     );
 
-    React.useEffect(() => {
-        const check = async () => {
-            try {
-                const res = await fetch(
-                    "https://raw.githubusercontent.com/vermingov/vermLib/main/version.txt",
-                    { cache: "no-cache" as any },
-                );
-                const latest = (await res.text()).trim();
-
-                // Background checks: prompt only when update is available; silent if up-to-date
-                if (latest && latest !== VERM_LIB_VERSION) {
-                    if (
-                        window.confirm(
-                            `Update available for vermLib:\nInstalled: ${VERM_LIB_VERSION}\nLatest: ${latest}\n\nOpen update?`,
-                        )
-                    ) {
-                        VencordNative?.native?.openExternal?.(
-                            "https://github.com/vermingov/vermLib/archive/refs/heads/main.zip",
-                        );
-                    }
-                }
-            } catch {
-                /* ignore */
-            }
-        };
-
-        // initial on load + every 15 minutes
-        check();
-        const id = setInterval(check, 15 * 60 * 1000);
-        return () => clearInterval(id);
-    }, []);
-
     return (
         <div id="vermLibDashboard">
             <div className="vl-hero">
@@ -608,51 +576,6 @@ function Dashboard() {
                     vermLib Dashboard
                 </h2>
                 <p>Manage all Verm's plugins in one place.</p>
-                <div className="vl-actions">
-                    <button
-                        className="vl-btn primary"
-                        onClick={async () => {
-                            try {
-                                const res = await fetch(
-                                    "https://raw.githubusercontent.com/vermingov/vermLib/main/version.txt",
-                                    { cache: "no-cache" as any },
-                                );
-                                const latest = (await res.text()).trim();
-                                if (latest && latest !== VERM_LIB_VERSION) {
-                                    if (
-                                        window.confirm(
-                                            `Update available for vermLib:\nInstalled: ${VERM_LIB_VERSION}\nLatest: ${latest}\n\nOpen update?`,
-                                        )
-                                    ) {
-                                        VencordNative?.native?.openExternal?.(
-                                            "https://github.com/vermingov/vermLib/archive/refs/heads/main.zip",
-                                        );
-                                    }
-                                } else {
-                                    showToast(
-                                        "No updates found!",
-                                        Toasts.Type.MESSAGE,
-                                    );
-                                }
-                            } catch {
-                                // ignore network errors
-                            }
-                        }}
-                    >
-                        Check for updates
-                    </button>
-                    <button
-                        className="vl-btn"
-                        onClick={() =>
-                            VencordNative?.native?.openExternal?.(
-                                "https://github.com/vermingov/vermLib/archive/refs/heads/main.zip",
-                            )
-                        }
-                    >
-                        Update
-                    </button>
-                    <div className="vl-status">Version: {VERM_LIB_VERSION}</div>
-                </div>
             </div>
 
             <div className="vl-section-title">Voice</div>
@@ -825,7 +748,7 @@ function Dashboard() {
                 </Card>
                 <Card
                     title="AwesomeUser"
-                    description="Identify vermLib users: appends a hidden beacon for vermLib users and shows (VermLib) in profiles."
+                    description="Identify Vermcord users: appends a hidden beacon for vermLib users and shows (VermLib) in profiles."
                     enabled={state.enableAwesomeUser}
                     right={
                         <Switch
