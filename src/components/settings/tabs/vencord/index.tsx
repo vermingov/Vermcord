@@ -44,7 +44,7 @@ import { VibrancySettings } from "./MacVibrancySettings";
 import { NotificationSection } from "./NotificationSettings";
 
 const DEFAULT_DONATE_IMAGE =
-    "https://cdn.discordapp.com/attachments/1419360216000233552/1434575221951565987/wmremove-transformed-removebg-preview.png?ex=6908d3ca&is=6907824a&hm=49d4b532e82070ed2f8d999de86f8226d72db0deccb1dc1f16c8ff1f3fdb1dac&";
+    "https://media.discordapp.net/stickers/1434975568364961843.webp?size=160&amp;quality=lossless";
 const SHIGGY_DONATE_IMAGE =
     "https://media.discordapp.net/stickers/1401696926558191616.webp?size=160&amp;quality=lossless";
 const VENNIE_DONATOR_IMAGE =

@@ -20,6 +20,7 @@ import HideMicErrorNotice from "./plugins/hideMicErrorNotice";
 import RawMic from "./plugins/rawMic";
 import VCReturn from "./plugins/vcReturn";
 import CloneServerProfile from "./plugins/cloneServerProfile";
+import RandomVCJoiner from "./plugins/randomVCJoiner";
 
 type SubKey =
     | "fakeDeafen"
@@ -31,7 +32,8 @@ type SubKey =
     | "awesomeUser"
     | "selectiveServerLeaver"
     | "selectiveFriendRemover"
-    | "cloneServerProfile";
+    | "cloneServerProfile"
+    | "randomVCJoiner";
 
 type SubPlugin = {
     name?: string;
@@ -55,6 +57,8 @@ const subs: Record<SubKey, SubPlugin> = {
 
     cloneServerProfile: CloneServerProfile as unknown as SubPlugin,
 
+    randomVCJoiner: RandomVCJoiner as unknown as SubPlugin,
+
     awesomeUser: (require("./plugins/awesomeUser") as any).default as SubPlugin,
 
     selectiveServerLeaver: (require("./plugins/selectiveServerLeaver") as any)
@@ -77,7 +81,10 @@ const started: Record<SubKey, boolean> = {
     selectiveServerLeaver: false,
 
     selectiveFriendRemover: false,
+
     cloneServerProfile: false,
+
+    randomVCJoiner: false,
 };
 
 function safeStart(key: SubKey) {
@@ -101,14 +108,17 @@ function safeStop(key: SubKey) {
     }
 }
 
-// Private settings blueprint (not shown as raw toggles in the settings list)
 type PrivateState = {
     enableFakeDeafen: boolean;
     enableFollowUser: boolean;
     followUser_disconnectFollow: boolean;
+
     followUser_enableDebugLogs: boolean;
+
     enableGoXLRCensorIndicator: boolean;
+
     enableHideMicErrorNotice: boolean;
+
     enableRawMic: boolean;
 
     enableVCReturn: boolean;
@@ -118,18 +128,27 @@ type PrivateState = {
     enableSelectiveServerLeaver: boolean;
 
     enableSelectiveFriendRemover: boolean;
+
     enableNeverPausePreviews: boolean;
 
     enableCloneServerProfile: boolean;
+
+    enableRandomVCJoiner: boolean;
 };
 
 const DEFAULTS: PrivateState = {
     enableFakeDeafen: false,
+
     enableFollowUser: false,
+
     followUser_disconnectFollow: false,
+
     followUser_enableDebugLogs: false,
+
     enableGoXLRCensorIndicator: false,
+
     enableHideMicErrorNotice: false,
+
     enableRawMic: false,
 
     enableVCReturn: false,
@@ -139,9 +158,12 @@ const DEFAULTS: PrivateState = {
     enableSelectiveServerLeaver: false,
 
     enableSelectiveFriendRemover: false,
+
     enableNeverPausePreviews: false,
 
     enableCloneServerProfile: false,
+
+    enableRandomVCJoiner: false,
 };
 
 // Dashboard component (the only visible setting entry)
@@ -383,6 +405,8 @@ function Dashboard() {
 
         enableNeverPausePreviews:
             sInit.enableNeverPausePreviews ?? DEFAULTS.enableNeverPausePreviews,
+        enableRandomVCJoiner:
+            sInit.enableRandomVCJoiner ?? DEFAULTS.enableRandomVCJoiner,
     });
 
     // Helpers to apply side effects
@@ -464,11 +488,18 @@ function Dashboard() {
                     ? safeStart("selectiveFriendRemover")
                     : safeStop("selectiveFriendRemover");
                 break;
+
             case "enableCloneServerProfile":
                 value
                     ? safeStart("cloneServerProfile")
                     : safeStop("cloneServerProfile");
 
+                break;
+
+            case "enableRandomVCJoiner":
+                value
+                    ? safeStart("randomVCJoiner")
+                    : safeStop("randomVCJoiner");
                 break;
 
             case "enableNeverPausePreviews":
@@ -528,6 +559,9 @@ function Dashboard() {
             enableCloneServerProfile:
                 s.enableCloneServerProfile ?? prev.enableCloneServerProfile,
 
+            enableRandomVCJoiner:
+                s.enableRandomVCJoiner ?? prev.enableRandomVCJoiner,
+
             enableNeverPausePreviews:
                 s.enableNeverPausePreviews ?? prev.enableNeverPausePreviews,
         }));
@@ -551,8 +585,9 @@ function Dashboard() {
 
         s.enableSelectiveServerLeaver = state.enableSelectiveServerLeaver;
 
-        s.enableSelectiveFriendRemover = state.enableSelectiveFriendRemover;
         s.enableCloneServerProfile = state.enableCloneServerProfile;
+
+        s.enableRandomVCJoiner = state.enableRandomVCJoiner;
 
         s.enableNeverPausePreviews = state.enableNeverPausePreviews;
     }, [
@@ -570,8 +605,9 @@ function Dashboard() {
 
         state.enableSelectiveServerLeaver,
 
-        state.enableSelectiveFriendRemover,
         state.enableCloneServerProfile,
+
+        state.enableRandomVCJoiner,
 
         state.enableNeverPausePreviews,
     ]);
@@ -714,6 +750,20 @@ function Dashboard() {
                             checked={state.enableVCReturn}
                             onChange={(v) => update("enableVCReturn", v)}
                             ariaLabel="Enable VC Return"
+                        />
+                    }
+                    tag="QoL"
+                />
+
+                <Card
+                    title="Random VC Joiner"
+                    description="Adds a toolbar button next to Inbox to join a random accessible voice channel across your servers."
+                    enabled={state.enableRandomVCJoiner}
+                    right={
+                        <Switch
+                            checked={state.enableRandomVCJoiner}
+                            onChange={(v) => update("enableRandomVCJoiner", v)}
+                            ariaLabel="Enable Random VC Joiner"
                         />
                     }
                     tag="QoL"
@@ -1031,7 +1081,10 @@ export default definePlugin({
         if (S.enableSelectiveServerLeaver) safeStart("selectiveServerLeaver");
 
         if (S.enableSelectiveFriendRemover) safeStart("selectiveFriendRemover");
+
         if (S.enableCloneServerProfile) safeStart("cloneServerProfile");
+
+        if (S.enableRandomVCJoiner) safeStart("randomVCJoiner");
     },
 
     stop() {
