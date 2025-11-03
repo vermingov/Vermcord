@@ -30,6 +30,7 @@ type SubKey =
     | "vcReturn"
     | "awesomeUser"
     | "selectiveServerLeaver"
+    | "selectiveFriendRemover"
     | "cloneServerProfile";
 
 type SubPlugin = {
@@ -51,9 +52,15 @@ const subs: Record<SubKey, SubPlugin> = {
     hideMicErrorNotice: HideMicErrorNotice as unknown as SubPlugin,
     rawMic: RawMic as unknown as SubPlugin,
     vcReturn: VCReturn as unknown as SubPlugin,
+
     cloneServerProfile: CloneServerProfile as unknown as SubPlugin,
+
     awesomeUser: (require("./plugins/awesomeUser") as any).default as SubPlugin,
+
     selectiveServerLeaver: (require("./plugins/selectiveServerLeaver") as any)
+        .default as SubPlugin,
+
+    selectiveFriendRemover: (require("./plugins/selectiveFriendRemover") as any)
         .default as SubPlugin,
 };
 
@@ -64,8 +71,12 @@ const started: Record<SubKey, boolean> = {
     hideMicErrorNotice: false,
     rawMic: false,
     vcReturn: false,
+
     awesomeUser: false,
+
     selectiveServerLeaver: false,
+
+    selectiveFriendRemover: false,
     cloneServerProfile: false,
 };
 
@@ -99,10 +110,16 @@ type PrivateState = {
     enableGoXLRCensorIndicator: boolean;
     enableHideMicErrorNotice: boolean;
     enableRawMic: boolean;
+
     enableVCReturn: boolean;
+
     enableAwesomeUser: boolean;
+
     enableSelectiveServerLeaver: boolean;
+
+    enableSelectiveFriendRemover: boolean;
     enableNeverPausePreviews: boolean;
+
     enableCloneServerProfile: boolean;
 };
 
@@ -114,10 +131,16 @@ const DEFAULTS: PrivateState = {
     enableGoXLRCensorIndicator: false,
     enableHideMicErrorNotice: false,
     enableRawMic: false,
+
     enableVCReturn: false,
+
     enableAwesomeUser: true,
+
     enableSelectiveServerLeaver: false,
+
+    enableSelectiveFriendRemover: false,
     enableNeverPausePreviews: false,
+
     enableCloneServerProfile: false,
 };
 
@@ -344,13 +367,20 @@ function Dashboard() {
             sInit.enableHideMicErrorNotice ?? DEFAULTS.enableHideMicErrorNotice,
         enableRawMic: sInit.enableRawMic ?? DEFAULTS.enableRawMic,
         enableVCReturn: sInit.enableVCReturn ?? DEFAULTS.enableVCReturn,
+
         enableAwesomeUser:
             sInit.enableAwesomeUser ?? DEFAULTS.enableAwesomeUser,
+
         enableSelectiveServerLeaver:
             sInit.enableSelectiveServerLeaver ??
             DEFAULTS.enableSelectiveServerLeaver,
+
+        enableSelectiveFriendRemover:
+            sInit.enableSelectiveFriendRemover ??
+            DEFAULTS.enableSelectiveFriendRemover,
         enableCloneServerProfile:
             sInit.enableCloneServerProfile ?? DEFAULTS.enableCloneServerProfile,
+
         enableNeverPausePreviews:
             sInit.enableNeverPausePreviews ?? DEFAULTS.enableNeverPausePreviews,
     });
@@ -421,16 +451,26 @@ function Dashboard() {
                     safeStop("awesomeUser");
                 }
                 break;
+
             case "enableSelectiveServerLeaver":
                 value
                     ? safeStart("selectiveServerLeaver")
                     : safeStop("selectiveServerLeaver");
+
+                break;
+
+            case "enableSelectiveFriendRemover":
+                value
+                    ? safeStart("selectiveFriendRemover")
+                    : safeStop("selectiveFriendRemover");
                 break;
             case "enableCloneServerProfile":
                 value
                     ? safeStart("cloneServerProfile")
                     : safeStop("cloneServerProfile");
+
                 break;
+
             case "enableNeverPausePreviews":
                 try {
                     if (
@@ -475,12 +515,19 @@ function Dashboard() {
                 s.enableHideMicErrorNotice ?? prev.enableHideMicErrorNotice,
             enableRawMic: s.enableRawMic ?? prev.enableRawMic,
             enableVCReturn: s.enableVCReturn ?? prev.enableVCReturn,
+
             enableAwesomeUser: s.enableAwesomeUser ?? prev.enableAwesomeUser,
+
             enableSelectiveServerLeaver:
                 s.enableSelectiveServerLeaver ??
                 prev.enableSelectiveServerLeaver,
+
+            enableSelectiveFriendRemover:
+                s.enableSelectiveFriendRemover ??
+                prev.enableSelectiveFriendRemover,
             enableCloneServerProfile:
                 s.enableCloneServerProfile ?? prev.enableCloneServerProfile,
+
             enableNeverPausePreviews:
                 s.enableNeverPausePreviews ?? prev.enableNeverPausePreviews,
         }));
@@ -497,10 +544,16 @@ function Dashboard() {
         s.enableGoXLRCensorIndicator = state.enableGoXLRCensorIndicator;
         s.enableHideMicErrorNotice = state.enableHideMicErrorNotice;
         s.enableRawMic = state.enableRawMic;
+
         s.enableVCReturn = state.enableVCReturn;
+
         s.enableAwesomeUser = state.enableAwesomeUser;
+
         s.enableSelectiveServerLeaver = state.enableSelectiveServerLeaver;
+
+        s.enableSelectiveFriendRemover = state.enableSelectiveFriendRemover;
         s.enableCloneServerProfile = state.enableCloneServerProfile;
+
         s.enableNeverPausePreviews = state.enableNeverPausePreviews;
     }, [
         state.enableFakeDeafen,
@@ -510,10 +563,16 @@ function Dashboard() {
         state.enableGoXLRCensorIndicator,
         state.enableHideMicErrorNotice,
         state.enableRawMic,
+
         state.enableVCReturn,
+
         state.enableAwesomeUser,
+
         state.enableSelectiveServerLeaver,
+
+        state.enableSelectiveFriendRemover,
         state.enableCloneServerProfile,
+
         state.enableNeverPausePreviews,
     ]);
 
@@ -659,6 +718,7 @@ function Dashboard() {
                     }
                     tag="QoL"
                 />
+
                 <Card
                     title="Selective Server Leaver"
                     description="Allows you to leave multiple servers at once."
@@ -674,6 +734,22 @@ function Dashboard() {
                     }
                     tag="QoL"
                 />
+                <Card
+                    title="Selective Friend Remover"
+                    description="Remove multiple friends at once."
+                    enabled={state.enableSelectiveFriendRemover}
+                    right={
+                        <Switch
+                            checked={state.enableSelectiveFriendRemover}
+                            onChange={(v) =>
+                                update("enableSelectiveFriendRemover", v)
+                            }
+                            ariaLabel="Enable Selective Friend Remover"
+                        />
+                    }
+                    tag="QoL"
+                />
+
                 <Card
                     title="Never Pause Previews"
                     description="Prevents in-call/PiP previews (screenshare, streams, etc.) from pausing when Discord loses focus."
@@ -949,8 +1025,12 @@ export default definePlugin({
         if (S.enableHideMicErrorNotice) safeStart("hideMicErrorNotice");
         if (S.enableRawMic) safeStart("rawMic");
         if (S.enableVCReturn) safeStart("vcReturn");
+
         if (S.enableAwesomeUser) safeStart("awesomeUser");
+
         if (S.enableSelectiveServerLeaver) safeStart("selectiveServerLeaver");
+
+        if (S.enableSelectiveFriendRemover) safeStart("selectiveFriendRemover");
         if (S.enableCloneServerProfile) safeStart("cloneServerProfile");
     },
 
