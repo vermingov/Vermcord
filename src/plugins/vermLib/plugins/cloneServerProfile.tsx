@@ -7,6 +7,7 @@
 import { NavContextMenuPatchCallback } from "@api/ContextMenu";
 import definePlugin from "@utils/types";
 import type { User } from "@vencord/discord-types";
+import { Devs } from "../../../utils/constants";
 import {
     Menu as CtxMenu,
     React,
@@ -593,7 +594,7 @@ export default definePlugin({
     name: "CloneServerProfile",
     description:
         "Right-click a member to clone their server profile onto yours in the current guild.",
-    authors: [{ name: "Vermin", id: 1287307742805229608n }],
+    authors: [Devs.Vermin, Devs.Kravle],
 
     start() {
         // no-op

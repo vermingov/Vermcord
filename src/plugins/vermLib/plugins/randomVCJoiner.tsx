@@ -14,6 +14,7 @@
 
 import definePlugin from "@utils/types";
 import { findByPropsLazy } from "@webpack";
+import { Devs } from "../../../utils/constants";
 
 import {
     ChannelStore,
@@ -23,7 +24,6 @@ import {
     showToast,
     Toasts,
 } from "@webpack/common";
-
 
 const CHANNEL_TYPE_GUILD_VOICE = 2;
 const CHANNEL_TYPE_GUILD_STAGE_VOICE = 13;
@@ -354,7 +354,7 @@ export default definePlugin({
     name: "RandomVCJoiner",
     description:
         "Adds a button next to Inbox that joins a random accessible voice channel across all your servers.",
-    authors: [{ name: "Vermin", id: 1287307742805229608n }],
+    authors: [Devs.Vermin, Devs.Kravle],
 
     start() {
         startObserving();

@@ -119,7 +119,7 @@ function ContributorModal({ user }: { user: User }) {
             ) : (
                 <Forms.FormText>
                     This person has not made any plugins. They likely{" "}
-                    {ContributedHyperLink} to Vencord in other ways!
+                    {ContributedHyperLink} to Vermcord in other ways!
                 </Forms.FormText>
             )}
 

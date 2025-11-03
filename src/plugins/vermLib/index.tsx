@@ -1,14 +1,19 @@
-/*
+/**
+
  * Vencord, a Discord client mod
+
  * vermLib: Plugin hub to manage multiple small utilities as sub-plugins.
+
  * Revamped: Modern dashboard settings with sections, animations, and a single dashboard component.
+
  * SPDX-License-Identifier: GPL-3.0-or-later
+
  */
 
 import ErrorBoundary from "@components/ErrorBoundary";
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
-import { React, showToast, Toasts } from "@webpack/common";
+import { React } from "@webpack/common";
 
 const VERM_LIB_VERSION = "1.0.2";
 
@@ -21,6 +26,9 @@ import RawMic from "./plugins/rawMic";
 import VCReturn from "./plugins/vcReturn";
 import CloneServerProfile from "./plugins/cloneServerProfile";
 import RandomVCJoiner from "./plugins/randomVCJoiner";
+
+// Credits
+import { Devs } from "../../utils/constants";
 
 type SubKey =
     | "fakeDeafen"
@@ -37,13 +45,22 @@ type SubKey =
 
 type SubPlugin = {
     name?: string;
+
     start?: () => void | Promise<void>;
+
     stop?: () => void | Promise<void>;
+
     // Optional sub-structures used by some plugins
+
+    updateSettings?: (settings: any) => void;
+
     settings?: any;
     flux?: Record<string, (payload: any) => void>;
+
     contextMenus?: Record<string, (...args: any[]) => any>;
+
     // For FakeDeafen UI
+
     FakeDeafenToggleButton?: (props?: any) => React.ReactElement | null;
 };
 
@@ -926,10 +943,7 @@ function FDButton(props: any) {
 export default definePlugin({
     name: "vermLib",
     description: "The brain, heart, and soul of Vermcord.",
-    authors: [
-        { name: "Vermin", id: 1287307742805229608n },
-        { name: "Kravle", id: 1175153197640331284n },
-    ],
+    authors: [Devs.Vermin, Devs.Kravle],
 
     settings,
 

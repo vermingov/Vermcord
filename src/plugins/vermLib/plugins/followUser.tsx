@@ -8,6 +8,7 @@ import { NavContextMenuPatchCallback } from "@api/ContextMenu";
 import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
 import type { Channel, User } from "@vencord/discord-types";
+import { Devs } from "../../../utils/constants";
 import { findByPropsLazy } from "@webpack";
 import {
     ChannelActionCreators,
@@ -603,7 +604,7 @@ export default definePlugin({
     name: "FollowUser",
     description:
         "Right-click a user to follow their voice channel; automatically preloads guild data for seamless joining.",
-    authors: [{ name: "Vermin", id: 1287307742805229608n }],
+    authors: [Devs.Vermin, Devs.Kravle],
     settings,
     // Export function for vermLib to update settings
     updateSettings(newSettings: {

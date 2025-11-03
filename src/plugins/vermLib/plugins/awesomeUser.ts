@@ -31,6 +31,8 @@ let pluginActive = false;
 let requestPending = false;
 let beaconSetOnStart = false;
 
+import { Devs } from "../../../utils/constants";
+
 /* ----------------------- Debug/Logging Functions ----------------------- */
 
 function debug(...args: any[]) {
@@ -305,7 +307,7 @@ export default definePlugin({
     name: PLUGIN_NAME,
     description:
         "Sets your pronouns to a beacon emoji so others can recognize you. Locally, any pronouns containing the beacon are replaced with bold 'VERMLIB USER'.",
-    authors: [{ name: "Vermin", id: 1287307742805229608n }],
+    authors: [Devs.Vermin, Devs.Kravle],
 
     async start() {
         debug("Plugin starting");
