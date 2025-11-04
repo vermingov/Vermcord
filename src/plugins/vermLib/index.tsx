@@ -15,8 +15,6 @@ import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
 import { React } from "@webpack/common";
 
-const VERM_LIB_VERSION = "1.0.2";
-
 // Sub-plugins
 import FakeDeafen from "./plugins/fakeDeafen";
 import FollowUser from "./plugins/followUser";
@@ -944,7 +942,7 @@ export default definePlugin({
     name: "vermLib",
     description: "The brain, heart, and soul of Vermcord.",
     required: true,
-    authors: [Devs.Vermin, Devs.Kravle],
+    authors: [Devs.Vermin, Devs.Kravle, Devs.Blacksmith],
 
     settings,
 
@@ -1048,40 +1046,6 @@ export default definePlugin({
                 });
             }
         } catch {}
-
-        // Background auto-check for updates at startup and every 15 minutes
-        try {
-            const doCheck = async () => {
-                try {
-                    const res = await fetch(
-                        "https://raw.githubusercontent.com/vermingov/vermLib/main/version.txt",
-                        { cache: "no-cache" as any },
-                    );
-                    const latest = (await res.text()).trim();
-
-                    if (latest && latest !== VERM_LIB_VERSION) {
-                        if (
-                            window.confirm(
-                                `Update available for vermLib:\nInstalled: ${VERM_LIB_VERSION}\nLatest: ${latest}\n\nOpen update?`,
-                            )
-                        ) {
-                            VencordNative?.native?.openExternal?.(
-                                "https://github.com/vermingov/vermLib/archive/refs/heads/main.zip",
-                            );
-                        }
-                    }
-                } catch {
-                    /* ignore */
-                }
-            };
-            doCheck();
-            (window as any).__vermLibUpdateTimer = setInterval(
-                doCheck,
-                15 * 60 * 1000,
-            );
-        } catch {
-            /* ignore */
-        }
 
         // Start enabled sub-plugins
         if (S.enableFakeDeafen) safeStart("fakeDeafen");

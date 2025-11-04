@@ -19,7 +19,7 @@ const DEBUG = true;
 
 const BEACON = "️";
 
-const VERMLIB_BADGE_TEXT = "VERMCORD USER";
+const VERMLIB_BADGE_TEXT = "VERMLIB USER";
 const VERMLIB_BADGE_CLASS = "vlAwesomeUserBadge";
 const VERMLIB_BADGE_STYLE_ID = "vl-awesome-user-badge-style";
 
@@ -30,8 +30,6 @@ let reapplyTimer: number | null = null;
 let pluginActive = false;
 let requestPending = false;
 let beaconSetOnStart = false;
-
-import { Devs } from "../../../utils/constants";
 
 /* ----------------------- Debug/Logging Functions ----------------------- */
 
@@ -71,6 +69,7 @@ function getLocalPronouns(): string | null {
 async function setPronouns(newPronouns: string): Promise<boolean> {
     debug("setPronouns() called with:", newPronouns);
 
+    // Avoid duplicate requests
     if (requestPending) {
         debug("Request already pending, skipping");
         return false;
@@ -92,6 +91,7 @@ async function setPronouns(newPronouns: string): Promise<boolean> {
 
         let success = false;
 
+        // Single attempt: PATCH /users/@me
         try {
             debug("Attempting PATCH /users/@me");
             await RestAPI.patch?.({
@@ -107,6 +107,7 @@ async function setPronouns(newPronouns: string): Promise<boolean> {
         }
 
         if (success) {
+            // Dispatch to update local state
             try {
                 debug("Dispatching CURRENT_USER_UPDATE");
                 FluxDispatcher?.dispatch?.({
@@ -191,19 +192,19 @@ function injectVermlibBadgeStyles() {
 }
 
 function replaceWithVermlibBadge(el: Element) {
-    // Only replace if this is a pronouns element containing the beacon
-    if ((el as HTMLElement).dataset?.vermAwesomeUserReplaced === "1") return;
-    if (!isPronounsElement(el)) return; // safeguard to avoid badges or other elements
-    if (!elementContainsBeacon(el)) return;
+    if ((el as HTMLElement).dataset?.vermAwesomeUserReplaced === "1") {
+        return;
+    }
 
-    debug("Replacing pronouns element text with vermlib badge text");
-    el.textContent = ""; // Clear pronouns text safely
+    debug("Replacing element with vermlib badge");
+    el.innerHTML = "";
 
     const strong = document.createElement("strong");
     strong.className = VERMLIB_BADGE_CLASS;
     strong.textContent = VERMLIB_BADGE_TEXT;
 
     el.appendChild(strong);
+
     (el as HTMLElement).dataset.vermAwesomeUserReplaced = "1";
 }
 
@@ -231,7 +232,6 @@ function scanAndReplace(root: Element | Document) {
 
     for (const el of Array.from(candidates)) {
         if (!elementContainsBeacon(el)) continue;
-        if (!isPronounsElement(el)) continue; // no badge or unrelated element replacement
         debug("Found pronouns element with beacon, replacing");
         replaceWithVermlibBadge(el);
     }
@@ -258,11 +258,7 @@ function startObserver() {
                     }
                 } else if (m.type === "characterData") {
                     const parent = m.target?.parentElement;
-                    if (
-                        parent &&
-                        elementContainsBeacon(parent) &&
-                        isPronounsElement(parent)
-                    ) {
+                    if (parent && elementContainsBeacon(parent)) {
                         scanAndReplace(parent);
                     }
                 } else if (
@@ -270,10 +266,7 @@ function startObserver() {
                     m.target instanceof Element
                 ) {
                     const el = m.target;
-                    if (
-                        (elementContainsBeacon(el) && isPronounsElement(el)) ||
-                        isPronounsElement(el)
-                    ) {
+                    if (elementContainsBeacon(el) || isPronounsElement(el)) {
                         scanAndReplace(el);
                     }
                 }
@@ -312,7 +305,7 @@ export default definePlugin({
     name: PLUGIN_NAME,
     description:
         "Sets your pronouns to a beacon emoji so others can recognize you. Locally, any pronouns containing the beacon are replaced with bold 'VERMLIB USER'.",
-    authors: [Devs.Vermin, Devs.Kravle],
+    authors: [{ name: "Vermin", id: 1287307742805229608n }],
 
     async start() {
         debug("Plugin starting");
