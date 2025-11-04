@@ -10,8 +10,22 @@ import { Link } from "@components/Link";
 import { Margins } from "@utils/margins";
 import { classes } from "@utils/misc";
 import { relaunch } from "@utils/native";
-import { changes, checkForUpdates, update, updateError } from "@utils/updater";
-import { Alerts, Button, Card, Forms, React, Toasts, useState } from "@webpack/common";
+import { Logger } from "@utils/Logger";
+import {
+    changes as UpdaterChanges,
+    checkForUpdates,
+    update,
+    updateError,
+} from "@utils/updater";
+import {
+    Alerts,
+    Button,
+    Card,
+    Forms,
+    React,
+    Toasts,
+    useState,
+} from "@webpack/common";
 
 import { runWithDispatch } from "./runWithDispatch";
 
@@ -20,7 +34,15 @@ export interface CommonProps {
     repoPending: boolean;
 }
 
-export function HashLink({ repo, hash, disabled = false }: { repo: string, hash: string, disabled?: boolean; }) {
+export function HashLink({
+    repo,
+    hash,
+    disabled = false,
+}: {
+    repo: string;
+    hash: string;
+    disabled?: boolean;
+}) {
     return (
         <Link href={`${repo}/commit/${hash}`} disabled={disabled}>
             {hash}
@@ -28,25 +50,32 @@ export function HashLink({ repo, hash, disabled = false }: { repo: string, hash:
     );
 }
 
-export function Changes({ updates, repo, repoPending }: CommonProps & { updates: typeof changes; }) {
+export function Changes({
+    updates,
+    repo,
+    repoPending,
+}: CommonProps & { updates: typeof UpdaterChanges }) {
+    const list = Array.isArray(updates) ? updates : [];
     return (
         <Card style={{ padding: "0 0.5em" }}>
-            {updates.map(({ hash, author, message }) => (
+            {list.map(({ hash, author, message }) => (
                 <div
                     key={hash}
                     style={{
                         marginTop: "0.5em",
-                        marginBottom: "0.5em"
+                        marginBottom: "0.5em",
                     }}
                 >
                     <code>
                         <HashLink {...{ repo, hash }} disabled={repoPending} />
                     </code>
 
-                    <span style={{
-                        marginLeft: "0.5em",
-                        color: "var(--text-default)"
-                    }}>
+                    <span
+                        style={{
+                            marginLeft: "0.5em",
+                            color: "var(--text-default)",
+                        }}
+                    >
                         {message} - {author}
                     </span>
                 </div>
@@ -59,15 +88,18 @@ export function Newer(props: CommonProps) {
     return (
         <>
             <Forms.FormText className={Margins.bottom8}>
-                Your local copy has more recent commits. Please stash or reset them.
+                Your local copy has more recent commits. Please stash or reset
+                them.
             </Forms.FormText>
-            <Changes {...props} updates={changes} />
+            <Changes {...props} updates={UpdaterChanges} />
         </>
     );
 }
 
 export function Updatable(props: CommonProps) {
-    const [updates, setUpdates] = useState(changes);
+    const [updates, setUpdates] = useState(
+        Array.isArray(UpdaterChanges) ? UpdaterChanges : [],
+    );
     const [isChecking, setIsChecking] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
 
@@ -77,14 +109,24 @@ export function Updatable(props: CommonProps) {
         <>
             {!updates && updateError ? (
                 <>
-                    <Forms.FormText>Failed to check updates. Check the console for more info</Forms.FormText>
+                    <Forms.FormText>
+                        Failed to check updates. Check the console for more info
+                    </Forms.FormText>
                     <ErrorCard style={{ padding: "1em" }}>
-                        <p>{updateError.stderr || updateError.stdout || "An unknown error occurred"}</p>
+                        <p>
+                            {(updateError as any)?.stderr ||
+                                (updateError as any)?.stdout ||
+                                "An unknown error occurred"}
+                        </p>
                     </ErrorCard>
                 </>
             ) : (
                 <Forms.FormText className={Margins.bottom8}>
-                    {isOutdated ? (updates.length === 1 ? "There is 1 Update" : `There are ${updates.length} Updates`) : "Up to Date!"}
+                    {isOutdated
+                        ? updates.length === 1
+                            ? "There is 1 Update"
+                            : `There are ${updates.length} Updates`
+                        : "Up to Date!"}
                 </Forms.FormText>
             )}
 
@@ -96,10 +138,11 @@ export function Updatable(props: CommonProps) {
                         size={Button.Sizes.SMALL}
                         disabled={isUpdating || isChecking}
                         onClick={runWithDispatch(setIsUpdating, async () => {
-                            if (await update()) {
+                            const didUpdate = await Promise.resolve(update());
+                            if (didUpdate) {
                                 setUpdates([]);
 
-                                await new Promise<void>(r => {
+                                await new Promise<void>((r) => {
                                     Alerts.show({
                                         title: "Update Success!",
                                         body: "Successfully updated. Restart now to apply the changes?",
@@ -109,7 +152,7 @@ export function Updatable(props: CommonProps) {
                                             relaunch();
                                             r();
                                         },
-                                        onCancel: r
+                                        onCancel: r,
                                     });
                                 });
                             }
@@ -122,10 +165,14 @@ export function Updatable(props: CommonProps) {
                     size={Button.Sizes.SMALL}
                     disabled={isUpdating || isChecking}
                     onClick={runWithDispatch(setIsChecking, async () => {
-                        const outdated = await checkForUpdates();
+                        const outdated =
+                            await Promise.resolve(checkForUpdates());
 
                         if (outdated) {
-                            setUpdates(changes);
+                            const next = Array.isArray(UpdaterChanges)
+                                ? UpdaterChanges
+                                : [];
+                            setUpdates(next);
                         } else {
                             setUpdates([]);
 
@@ -134,8 +181,8 @@ export function Updatable(props: CommonProps) {
                                 id: Toasts.genId(),
                                 type: Toasts.Type.MESSAGE,
                                 options: {
-                                    position: Toasts.Position.BOTTOM
-                                }
+                                    position: Toasts.Position.BOTTOM,
+                                },
                             });
                         }
                     })}

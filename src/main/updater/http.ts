@@ -16,20 +16,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { mkdir, rm, writeFile } from "fs/promises";
+import { join } from "path";
+import { ipcMain } from "electron";
+
+import { DATA_DIR } from "@main/utils/constants";
 import { fetchBuffer, fetchJson } from "@main/utils/http";
 import { IpcEvents } from "@shared/IpcEvents";
 import { VENCORD_USER_AGENT } from "@shared/vencordUserAgent";
-import { ipcMain } from "electron";
-import { writeFile } from "fs/promises";
-import { join } from "path";
 
+import { serializeErrors } from "./common";
 import gitHash from "~git-hash";
+
 const gitRemote = "vermingov/Vermcord";
-
-import { serializeErrors, VENCORD_FILES } from "./common";
-
 const API_BASE = `https://api.github.com/repos/${gitRemote}`;
-let PendingUpdates = [] as [string, string][];
+
+const DIST_DIR = join(DATA_DIR, "dist");
+let PendingUpdates: Array<[string, string]> = [];
+let LatestReleaseHash: string | null = null;
 
 async function githubGet<T = any>(endpoint: string) {
     return fetchJson<T>(API_BASE + endpoint, {
@@ -37,52 +41,63 @@ async function githubGet<T = any>(endpoint: string) {
             Accept: "application/vnd.github+json",
             // "All API requests MUST include a valid User-Agent header.
             // Requests with no User-Agent header will be rejected."
-            "User-Agent": VENCORD_USER_AGENT,
-        },
+            "User-Agent": VENCORD_USER_AGENT
+        }
     });
 }
 
+// Returns a list of commits between the local hash and the latest release hash.
+// If up-to-date, returns an empty list.
 async function calculateGitChanges() {
     const isOutdated = await fetchUpdates();
     if (!isOutdated) return [];
 
-    const data = await githubGet(`/compare/${gitHash}...HEAD`);
+    const compareTo = LatestReleaseHash ?? "HEAD";
+    const data = await githubGet(`/compare/${gitHash}...${compareTo}`);
 
-    return data.commits.map((c: any) => ({
-        // github api only sends the long sha
+    return (data as any).commits.map((c: any) => ({
         hash: c.sha.slice(0, 7),
-        author: c.author.login,
-        message: c.commit.message.split("\n")[0],
+        author: c.author?.login ?? c.commit?.author?.name ?? "unknown",
+        message: c.commit.message.split("\n")[0]
     }));
 }
 
+// Checks the latest GitHub release and prepares PendingUpdates by collecting
+// all assets from the release. Comparison is based on the short commit hash
+// suffix in the release name, e.g. "Vermcord v1.0.5 25330dd".
 async function fetchUpdates() {
     const data = await githubGet("/releases/latest");
 
-    const hash = data.name.slice(data.name.lastIndexOf(" ") + 1);
+    // Take the last token in the release name as the short commit hash
+    const name = (data as any).name as string;
+    const hash = name.slice(name.lastIndexOf(" ") + 1).trim();
+    LatestReleaseHash = hash;
+
     if (hash === gitHash) return false;
 
-    data.assets.forEach(({ name, browser_download_url }) => {
-        if (VENCORD_FILES.some((s) => name.startsWith(s))) {
-            PendingUpdates.push([name, browser_download_url]);
-        }
+    PendingUpdates = [];
+    (data as any).assets.forEach(({ name, browser_download_url }: any) => {
+        PendingUpdates.push([name, browser_download_url]);
     });
 
     return true;
 }
 
+// Applies the prepared updates by replacing %APPDATA%/Vencord/dist
+// with the assets from the latest release.
 async function applyUpdates() {
+    await rm(DIST_DIR, { recursive: true, force: true });
+    await mkdir(DIST_DIR, { recursive: true });
+
     const fileContents = await Promise.all(
         PendingUpdates.map(async ([name, url]) => {
             const contents = await fetchBuffer(url);
-            return [join(__dirname, name), contents] as const;
-        }),
+            return [join(DIST_DIR, name), contents] as const;
+        })
     );
 
     await Promise.all(
-        fileContents.map(async ([filename, contents]) =>
-            writeFile(filename, contents),
-        ),
+        fileContents.map(async ([filename, contents]) => writeFile(filename, contents))
     );
 
     PendingUpdates = [];
@@ -91,8 +106,9 @@ async function applyUpdates() {
 
 ipcMain.handle(
     IpcEvents.GET_REPO,
-    serializeErrors(() => `https://github.com/${gitRemote}`),
+    serializeErrors(() => `https://github.com/${gitRemote}`)
 );
 ipcMain.handle(IpcEvents.GET_UPDATES, serializeErrors(calculateGitChanges));
 ipcMain.handle(IpcEvents.UPDATE, serializeErrors(fetchUpdates));
-ipcMain.handle(IpcEvents.BUILD, serializeErrors(applyUpdates));
+ipcMain.handle(IpcEvents.BUILD,
+ serializeErrors(applyUpdates));
