@@ -1,13 +1,8 @@
 /**
-
  * Vencord, a Discord client mod
-
  * vermLib: Plugin hub to manage multiple small utilities as sub-plugins.
-
  * Revamped: Modern dashboard settings with sections, animations, and a single dashboard component.
-
  * SPDX-License-Identifier: GPL-3.0-or-later
-
  */
 
 import ErrorBoundary from "@components/ErrorBoundary";
@@ -24,80 +19,180 @@ import RawMic from "./plugins/rawMic";
 import VCReturn from "./plugins/vcReturn";
 import CloneServerProfile from "./plugins/cloneServerProfile";
 import RandomVCJoiner from "./plugins/randomVCJoiner";
+import RobloxLookup from "./plugins/robloxLookup";
+import VermcordUserCounter from "./plugins/vermcordUserCounter";
 
 // Credits
 import { Devs } from "../../utils/constants";
 
-type SubKey =
-    | "fakeDeafen"
-    | "followUser"
-    | "goxlr"
-    | "hideMicErrorNotice"
-    | "rawMic"
-    | "vcReturn"
-    | "selectiveServerLeaver"
-    | "selectiveFriendRemover"
-    | "cloneServerProfile"
-    | "randomVCJoiner";
-
 type SubPlugin = {
     name?: string;
-
     start?: () => void | Promise<void>;
-
     stop?: () => void | Promise<void>;
-
-    // Optional sub-structures used by some plugins
-
     updateSettings?: (settings: any) => void;
-
     settings?: any;
     flux?: Record<string, (payload: any) => void>;
-
     contextMenus?: Record<string, (...args: any[]) => any>;
-
-    // For FakeDeafen UI
-
     FakeDeafenToggleButton?: (props?: any) => React.ReactElement | null;
+    UserCounterComponent?: (props?: any) => React.ReactElement | null;
 };
 
-const subs: Record<SubKey, SubPlugin> = {
-    fakeDeafen: FakeDeafen as unknown as SubPlugin,
-    followUser: FollowUser as unknown as SubPlugin,
-    goxlr: GoXLRCensorIndicator as unknown as SubPlugin,
-    hideMicErrorNotice: HideMicErrorNotice as unknown as SubPlugin,
-    rawMic: RawMic as unknown as SubPlugin,
-    vcReturn: VCReturn as unknown as SubPlugin,
+interface PluginConfig {
+    key: string;
+    name: string;
+    module: SubPlugin;
+    description?: string;
+    tag?: string;
+    section: "voice" | "qol" | "social";
+    settings?: Record<string, any>;
+    required?: boolean;
+}
 
-    cloneServerProfile: CloneServerProfile as unknown as SubPlugin,
+// Define all plugins in one place - just add new entries here!
+const PLUGINS: PluginConfig[] = [
+    {
+        key: "fakeDeafen",
+        name: "Fake Deafen",
+        module: FakeDeafen as unknown as SubPlugin,
+        description:
+            "Allows you to appear deafened to others, while still being able to hear and talk.",
+        tag: "Voice",
+        section: "voice",
+    },
+    {
+        key: "rawMic",
+        name: "Raw Mic",
+        module: RawMic as unknown as SubPlugin,
+        description:
+            "Force raw WebRTC mic: disable echoCancellation, noiseSuppression, autoGainControl on VC join.",
+        tag: "Voice",
+        section: "voice",
+    },
+    {
+        key: "goxlr",
+        name: "GoXLR Mic Color",
+        module: GoXLRCensorIndicator as unknown as SubPlugin,
+        description:
+            "Show live green (Bleep) / red (Cough) indicator on the mic button via GoXLR Utility.",
+        tag: "Voice",
+        section: "voice",
+    },
+    {
+        key: "hideMicErrorNotice",
+        name: "Hide Mic Error Notice",
+        module: HideMicErrorNotice as unknown as SubPlugin,
+        description:
+            "Hides Discord's mic input warning banner (Error 3002) automatically.",
+        tag: "QoL",
+        section: "qol",
+    },
+    {
+        key: "vcReturn",
+        name: "VC Return",
+        module: VCReturn as unknown as SubPlugin,
+        description:
+            "Auto-clicks Discord's Reconnect button on startup to rejoin the last voice channel.",
+        tag: "QoL",
+        section: "qol",
+    },
+    {
+        key: "randomVCJoiner",
+        name: "Random VC Joiner",
+        module: RandomVCJoiner as unknown as SubPlugin,
+        description:
+            "Adds a toolbar button next to Inbox to join a random accessible voice channel across your servers.",
+        tag: "QoL",
+        section: "qol",
+    },
+    {
+        key: "selectiveServerLeaver",
+        name: "Selective Server Leaver",
+        module: (require("./plugins/selectiveServerLeaver") as any)
+            .default as SubPlugin,
+        description: "Allows you to leave multiple servers at once.",
+        tag: "QoL",
+        section: "qol",
+    },
+    {
+        key: "selectiveFriendRemover",
+        name: "Selective Friend Remover",
+        module: (require("./plugins/selectiveFriendRemover") as any)
+            .default as SubPlugin,
+        description: "Remove multiple friends at once.",
+        tag: "QoL",
+        section: "qol",
+    },
+    {
+        key: "cloneServerProfile",
+        name: "Clone Server Profile",
+        module: CloneServerProfile as unknown as SubPlugin,
+        description:
+            "Right-click a member to clone their server profile (nickname, server avatar, server banner) into yours in this server.",
+        tag: "Social",
+        section: "social",
+    },
+    {
+        key: "followUser",
+        name: "Follow User",
+        module: FollowUser as unknown as SubPlugin,
+        description:
+            "Right-click a user to follow their voice channel; optionally disconnect when they leave.",
+        tag: "Social",
+        section: "social",
+        settings: {
+            disconnectFollow: false,
+            enableDebugLogs: false,
+        },
+    },
+    {
+        key: "robloxLookup",
+        name: "Roblox Lookup",
+        module: RobloxLookup as unknown as SubPlugin,
+        description:
+            "Shows RAP, value, and more from Rolimons when a Roblox account is connected to this profile.",
+        tag: "Social",
+        section: "social",
+    },
+    {
+        key: "vermcordUserCounter",
+        name: "Vermcord User Counter",
+        module: VermcordUserCounter as unknown as SubPlugin,
+        description:
+            "Shows the number of online Vermcord users in the top bar and updates every minute.",
+        tag: "QoL",
+        section: "qol",
+        required: true,
+    },
+];
 
-    randomVCJoiner: RandomVCJoiner as unknown as SubPlugin,
+type SubKey = (typeof PLUGINS)[number]["key"];
+type PrivateState = Record<`enable${string}`, boolean> & Record<string, any>;
 
-    selectiveServerLeaver: (require("./plugins/selectiveServerLeaver") as any)
-        .default as SubPlugin,
+const DEFAULTS: PrivateState = PLUGINS.reduce((acc, p) => {
+    acc[`enable${p.key}`] = p.required ?? false;
+    if (p.settings) {
+        Object.assign(acc, p.settings);
+    }
+    return acc;
+}, {} as PrivateState);
 
-    selectiveFriendRemover: (require("./plugins/selectiveFriendRemover") as any)
-        .default as SubPlugin,
-};
+const subs: Record<string, SubPlugin> = PLUGINS.reduce(
+    (acc, p) => {
+        acc[p.key] = p.module;
+        return acc;
+    },
+    {} as Record<string, SubPlugin>,
+);
 
-const started: Record<SubKey, boolean> = {
-    fakeDeafen: false,
-    followUser: false,
-    goxlr: false,
-    hideMicErrorNotice: false,
-    rawMic: false,
-    vcReturn: false,
+const started: Record<string, boolean> = PLUGINS.reduce(
+    (acc, p) => {
+        acc[p.key] = false;
+        return acc;
+    },
+    {} as Record<string, boolean>,
+);
 
-    selectiveServerLeaver: false,
-
-    selectiveFriendRemover: false,
-
-    cloneServerProfile: false,
-
-    randomVCJoiner: false,
-};
-
-function safeStart(key: SubKey) {
+function safeStart(key: string) {
     if (started[key]) return;
     try {
         subs[key]?.start?.();
@@ -107,7 +202,7 @@ function safeStart(key: SubKey) {
     }
 }
 
-function safeStop(key: SubKey) {
+function safeStop(key: string) {
     if (!started[key]) return;
     try {
         subs[key]?.stop?.();
@@ -118,63 +213,8 @@ function safeStop(key: SubKey) {
     }
 }
 
-type PrivateState = {
-    enableFakeDeafen: boolean;
-    enableFollowUser: boolean;
-    followUser_disconnectFollow: boolean;
-
-    followUser_enableDebugLogs: boolean;
-
-    enableGoXLRCensorIndicator: boolean;
-
-    enableHideMicErrorNotice: boolean;
-
-    enableRawMic: boolean;
-
-    enableVCReturn: boolean;
-
-    enableSelectiveServerLeaver: boolean;
-
-    enableSelectiveFriendRemover: boolean;
-
-    enableNeverPausePreviews: boolean;
-
-    enableCloneServerProfile: boolean;
-
-    enableRandomVCJoiner: boolean;
-};
-
-const DEFAULTS: PrivateState = {
-    enableFakeDeafen: false,
-
-    enableFollowUser: false,
-
-    followUser_disconnectFollow: false,
-
-    followUser_enableDebugLogs: false,
-
-    enableGoXLRCensorIndicator: false,
-
-    enableHideMicErrorNotice: false,
-
-    enableRawMic: false,
-
-    enableVCReturn: false,
-
-    enableSelectiveServerLeaver: false,
-
-    enableSelectiveFriendRemover: false,
-
-    enableNeverPausePreviews: false,
-
-    enableCloneServerProfile: false,
-
-    enableRandomVCJoiner: false,
-};
-
-// Dashboard component (the only visible setting entry)
+// Dashboard component
 function Dashboard() {
-    // Inject dashboard styles once
     React.useEffect(() => {
         const id = "vermLib-dashboard-styles";
         if (document.getElementById(id)) return;
@@ -300,16 +340,6 @@ function Dashboard() {
     background: #ffffff;
     box-shadow: 0 1px 2px rgba(0,0,0,.45), 0 0 0 1px var(--brand-600, #4752C4) inset, 0 0 6px var(--brand-500, #5865F2);
 }
-#vermLibDashboard .vl-select {
-    width: 100%;
-    background: var(--vl-bg);
-    color: var(--vl-fg);
-    border: 1px solid rgba(255,255,255,.07);
-    border-radius: 8px;
-    padding: 8px 10px;
-    outline: none;
-}
-
 #vermLibDashboard .vl-section-title {
     font-size: 14px;
     font-weight: 700;
@@ -320,7 +350,6 @@ function Dashboard() {
     align-items: center;
     gap: 8px;
 }
-
 #vermLibDashboard .vl-section-title::before {
     content: "";
     width: 8px;
@@ -329,267 +358,73 @@ function Dashboard() {
     background: var(--brand-500);
     box-shadow: 0 0 10px var(--brand-500);
 }
-
 #vermLibDashboard .vl-divider {
     height: 1px;
     background: rgba(255,255,255,.10);
     border-radius: 999px;
     margin: 4px 0 10px 0;
-    box-shadow: none;
 }
 #vermLibDashboard .vl-note {
     font-size: 12px; color: var(--vl-fg-dim); margin-top: 8px;
 }
-#vermLibDashboard .vl-actions {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 10px;
-}
-#vermLibDashboard .vl-btn {
-    font-size: 12.5px;
-    padding: 6px 10px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,.08);
-    background: var(--background-modifier-accent);
-    color: var(--vl-fg);
-    cursor: pointer;
-}
-#vermLibDashboard .vl-btn.primary {
-    background: var(--brand-500);
-    color: white;
-    border-color: var(--brand-560, var(--brand-500));
-}
-#vermLibDashboard .vl-btn:disabled {
-    opacity: .6;
-    cursor: not-allowed;
-}
-#vermLibDashboard .vl-status {
-    font-size: 12px;
-    color: var(--vl-fg-dim);
-    align-self: center;
-}
 `;
         document.head.appendChild(style);
-        return () => {
-            style.remove();
-        };
+        return () => style.remove();
     }, []);
 
-    // Initialize from persisted settings.store with defaults
     const sInit = (settings.store as any) ?? {};
     const [state, setState] = React.useState<PrivateState>({
         ...DEFAULTS,
-        enableFakeDeafen: sInit.enableFakeDeafen ?? DEFAULTS.enableFakeDeafen,
-        enableFollowUser: sInit.enableFollowUser ?? DEFAULTS.enableFollowUser,
-        followUser_disconnectFollow:
-            sInit.followUser_disconnectFollow ??
-            DEFAULTS.followUser_disconnectFollow,
-        followUser_enableDebugLogs:
-            sInit.followUser_enableDebugLogs ??
-            DEFAULTS.followUser_enableDebugLogs,
-        enableGoXLRCensorIndicator:
-            sInit.enableGoXLRCensorIndicator ??
-            DEFAULTS.enableGoXLRCensorIndicator,
-        enableHideMicErrorNotice:
-            sInit.enableHideMicErrorNotice ?? DEFAULTS.enableHideMicErrorNotice,
-        enableRawMic: sInit.enableRawMic ?? DEFAULTS.enableRawMic,
-        enableVCReturn: sInit.enableVCReturn ?? DEFAULTS.enableVCReturn,
-
-        enableSelectiveServerLeaver:
-            sInit.enableSelectiveServerLeaver ??
-            DEFAULTS.enableSelectiveServerLeaver,
-
-        enableSelectiveFriendRemover:
-            sInit.enableSelectiveFriendRemover ??
-            DEFAULTS.enableSelectiveFriendRemover,
-        enableCloneServerProfile:
-            sInit.enableCloneServerProfile ?? DEFAULTS.enableCloneServerProfile,
-
-        enableNeverPausePreviews:
-            sInit.enableNeverPausePreviews ?? DEFAULTS.enableNeverPausePreviews,
-        enableRandomVCJoiner:
-            sInit.enableRandomVCJoiner ?? DEFAULTS.enableRandomVCJoiner,
+        ...Object.keys(DEFAULTS).reduce((acc, k) => {
+            acc[k] = sInit[k] ?? DEFAULTS[k];
+            return acc;
+        }, {} as PrivateState),
     });
 
-    // Helpers to apply side effects
     const update = <K extends keyof PrivateState>(
         key: K,
         value: PrivateState[K],
     ) => {
         setState((s) => ({ ...s, [key]: value }));
-        // Persist in settings.store
         (settings.store as any)[key] = value;
 
-        // Side-effects
-        switch (key) {
-            case "enableFakeDeafen":
-                value ? safeStart("fakeDeafen") : safeStop("fakeDeafen");
-                break;
-            case "enableFollowUser":
-                value ? safeStart("followUser") : safeStop("followUser");
-                break;
-            case "followUser_disconnectFollow":
-                try {
-                    if (subs.followUser?.updateSettings) {
-                        subs.followUser.updateSettings({
-                            disconnectFollow: value as boolean,
-                        });
-                    }
-                } catch {}
-                break;
-            case "followUser_enableDebugLogs":
-                try {
-                    if (subs.followUser?.updateSettings) {
-                        subs.followUser.updateSettings({
-                            enableDebugLogs: value as boolean,
-                        });
-                    }
-                } catch {}
-                break;
-            case "enableGoXLRCensorIndicator":
-                value ? safeStart("goxlr") : safeStop("goxlr");
-                break;
-            case "enableHideMicErrorNotice":
-                value
-                    ? safeStart("hideMicErrorNotice")
-                    : safeStop("hideMicErrorNotice");
-                break;
-            case "enableRawMic":
-                value ? safeStart("rawMic") : safeStop("rawMic");
-                break;
-            case "enableVCReturn":
-                value ? safeStart("vcReturn") : safeStop("vcReturn");
-                break;
-            case "enableSelectiveServerLeaver":
-                value
-                    ? safeStart("selectiveServerLeaver")
-                    : safeStop("selectiveServerLeaver");
+        // Auto start/stop based on enable flag
+        const plugin = PLUGINS.find((p) => `enable${p.key}` === key);
+        if (plugin) {
+            (value as boolean) ? safeStart(plugin.key) : safeStop(plugin.key);
+        }
 
-                break;
-
-            case "enableSelectiveFriendRemover":
-                value
-                    ? safeStart("selectiveFriendRemover")
-                    : safeStop("selectiveFriendRemover");
-                break;
-
-            case "enableCloneServerProfile":
-                value
-                    ? safeStart("cloneServerProfile")
-                    : safeStop("cloneServerProfile");
-
-                break;
-
-            case "enableRandomVCJoiner":
-                value
-                    ? safeStart("randomVCJoiner")
-                    : safeStop("randomVCJoiner");
-                break;
-
-            case "enableNeverPausePreviews":
-                try {
-                    if (
-                        window.confirm(
-                            "Never Pause Previews requires a restart to take effect. Restart now?",
-                        )
-                    )
-                        location.reload();
-                } catch {}
-                break;
+        // Handle special settings
+        if (
+            key === "followUser_disconnectFollow" ||
+            key === "followUser_enableDebugLogs"
+        ) {
+            try {
+                if (subs.followUser?.updateSettings) {
+                    subs.followUser.updateSettings({
+                        disconnectFollow: state.followUser_disconnectFollow,
+                        enableDebugLogs: state.followUser_enableDebugLogs,
+                    });
+                }
+            } catch {}
         }
     };
 
-    // Keep sub-plugin mirrored settings in sync when the component first mounts
-    React.useEffect(() => {
-        try {
-            if (subs.followUser?.updateSettings) {
-                subs.followUser.updateSettings({
-                    disconnectFollow: state.followUser_disconnectFollow,
-                    enableDebugLogs: state.followUser_enableDebugLogs,
-                    preloadDelay: 300,
-                });
-            }
-        } catch {}
-    }, []);
-
-    // Sync dashboard UI from persisted settings.store on mount
     React.useEffect(() => {
         const s = (settings.store as any) || {};
-        setState((prev) => ({
-            ...prev,
-            enableFakeDeafen: s.enableFakeDeafen ?? prev.enableFakeDeafen,
-            enableFollowUser: s.enableFollowUser ?? prev.enableFollowUser,
-            followUser_disconnectFollow:
-                s.followUser_disconnectFollow ??
-                prev.followUser_disconnectFollow,
-            followUser_enableDebugLogs:
-                s.followUser_enableDebugLogs ?? prev.followUser_enableDebugLogs,
-            enableGoXLRCensorIndicator:
-                s.enableGoXLRCensorIndicator ?? prev.enableGoXLRCensorIndicator,
-            enableHideMicErrorNotice:
-                s.enableHideMicErrorNotice ?? prev.enableHideMicErrorNotice,
-            enableRawMic: s.enableRawMic ?? prev.enableRawMic,
-            enableVCReturn: s.enableVCReturn ?? prev.enableVCReturn,
-
-            enableSelectiveServerLeaver:
-                s.enableSelectiveServerLeaver ??
-                prev.enableSelectiveServerLeaver,
-
-            enableSelectiveFriendRemover:
-                s.enableSelectiveFriendRemover ??
-                prev.enableSelectiveFriendRemover,
-            enableCloneServerProfile:
-                s.enableCloneServerProfile ?? prev.enableCloneServerProfile,
-
-            enableRandomVCJoiner:
-                s.enableRandomVCJoiner ?? prev.enableRandomVCJoiner,
-
-            enableNeverPausePreviews:
-                s.enableNeverPausePreviews ?? prev.enableNeverPausePreviews,
-        }));
+        setState((prev) =>
+            Object.keys(DEFAULTS).reduce((acc, k) => {
+                acc[k] = s[k] ?? prev[k];
+                return acc;
+            }, {} as PrivateState),
+        );
     }, []);
 
-    // Persist dashboard state into settings.store whenever toggles change
     React.useEffect(() => {
         const s = settings.store as any;
         if (!s) return;
-        s.enableFakeDeafen = state.enableFakeDeafen;
-        s.enableFollowUser = state.enableFollowUser;
-        s.followUser_disconnectFollow = state.followUser_disconnectFollow;
-        s.followUser_enableDebugLogs = state.followUser_enableDebugLogs;
-        s.enableGoXLRCensorIndicator = state.enableGoXLRCensorIndicator;
-        s.enableHideMicErrorNotice = state.enableHideMicErrorNotice;
-        s.enableRawMic = state.enableRawMic;
-
-        s.enableVCReturn = state.enableVCReturn;
-
-        s.enableSelectiveServerLeaver = state.enableSelectiveServerLeaver;
-
-        s.enableCloneServerProfile = state.enableCloneServerProfile;
-
-        s.enableRandomVCJoiner = state.enableRandomVCJoiner;
-
-        s.enableNeverPausePreviews = state.enableNeverPausePreviews;
-    }, [
-        state.enableFakeDeafen,
-        state.enableFollowUser,
-        state.followUser_disconnectFollow,
-        state.followUser_enableDebugLogs,
-        state.enableGoXLRCensorIndicator,
-        state.enableHideMicErrorNotice,
-        state.enableRawMic,
-
-        state.enableVCReturn,
-
-        state.enableSelectiveServerLeaver,
-
-        state.enableCloneServerProfile,
-
-        state.enableRandomVCJoiner,
-
-        state.enableNeverPausePreviews,
-    ]);
+        Object.assign(s, state);
+    }, [state]);
 
     const Card = (props: {
         title: string;
@@ -633,6 +468,104 @@ function Dashboard() {
         </div>
     );
 
+    const renderSection = (section: "voice" | "qol" | "social") => {
+        const plugins = PLUGINS.filter(
+            (p) => p.section === section && !p.required,
+        );
+        const sectionNames = {
+            voice: "Voice",
+            qol: "Quality of Life",
+            social: "Social & Identity",
+        };
+
+        if (plugins.length === 0) return null;
+
+        return (
+            <>
+                <div className="vl-section-title">{sectionNames[section]}</div>
+                <div className="vl-divider" role="separator" />
+                <div className="vl-grid" aria-label={sectionNames[section]}>
+                    {plugins.map((plugin) => (
+                        <Card
+                            key={plugin.key}
+                            title={plugin.name}
+                            description={plugin.description}
+                            enabled={state[`enable${plugin.key}`]}
+                            right={
+                                <Switch
+                                    checked={state[`enable${plugin.key}`]}
+                                    onChange={(v) =>
+                                        update(
+                                            `enable${plugin.key}` as keyof PrivateState,
+                                            v,
+                                        )
+                                    }
+                                    ariaLabel={`Enable ${plugin.name}`}
+                                />
+                            }
+                            tag={plugin.tag}
+                        >
+                            {plugin.key === "followUser" && (
+                                <>
+                                    <div
+                                        className="vl-row"
+                                        style={{ marginTop: 8 }}
+                                    >
+                                        <div
+                                            style={{
+                                                fontSize: 12.75,
+                                                color: "var(--vl-fg)",
+                                            }}
+                                        >
+                                            Disconnect when target leaves
+                                        </div>
+                                        <Switch
+                                            checked={
+                                                state.followUser_disconnectFollow
+                                            }
+                                            onChange={(v) =>
+                                                update(
+                                                    "followUser_disconnectFollow",
+                                                    v,
+                                                )
+                                            }
+                                            ariaLabel="Follow User: Disconnect When Target Leaves"
+                                        />
+                                    </div>
+                                    <div
+                                        className="vl-row"
+                                        style={{ marginTop: 8 }}
+                                    >
+                                        <div
+                                            style={{
+                                                fontSize: 12.75,
+                                                color: "var(--vl-fg)",
+                                            }}
+                                        >
+                                            Enable debug logs
+                                        </div>
+                                        <Switch
+                                            checked={
+                                                state.followUser_enableDebugLogs
+                                            }
+                                            onChange={(v) =>
+                                                update(
+                                                    "followUser_enableDebugLogs",
+                                                    v,
+                                                )
+                                            }
+                                            ariaLabel="Follow User: Enable Debug Logs"
+                                        />
+                                    </div>
+                                </>
+                            )}
+                        </Card>
+                    ))}
+                </div>
+            </>
+        );
+    };
+
     return (
         <div id="vermLibDashboard">
             <div className="vl-hero">
@@ -651,222 +584,9 @@ function Dashboard() {
                 </h2>
                 <p>Manage all Verm's plugins in one place.</p>
             </div>
-
-            <div className="vl-section-title">Voice</div>
-            <div className="vl-divider" role="separator" />
-            <div className="vl-grid" aria-label="Voice">
-                <Card
-                    title="Fake Deafen"
-                    description="Allows you to appear deafened to others, while still being able to hear and talk."
-                    enabled={state.enableFakeDeafen}
-                    right={
-                        <Switch
-                            checked={state.enableFakeDeafen}
-                            onChange={(v) => update("enableFakeDeafen", v)}
-                            ariaLabel="Enable Fake Deafen"
-                        />
-                    }
-                    tag="Voice"
-                />
-                <Card
-                    title="Raw Mic"
-                    description="Force raw WebRTC mic: disable echoCancellation, noiseSuppression, autoGainControl on VC join."
-                    enabled={state.enableRawMic}
-                    right={
-                        <Switch
-                            checked={state.enableRawMic}
-                            onChange={(v) => update("enableRawMic", v)}
-                            ariaLabel="Enable Raw Mic"
-                        />
-                    }
-                    tag="Voice"
-                />
-                <Card
-                    title="GoXLR Mic Color"
-                    description="Show live green (Bleep) / red (Cough) indicator on the mic button via GoXLR Utility."
-                    enabled={state.enableGoXLRCensorIndicator}
-                    right={
-                        <Switch
-                            checked={state.enableGoXLRCensorIndicator}
-                            onChange={(v) =>
-                                update("enableGoXLRCensorIndicator", v)
-                            }
-                            ariaLabel="Enable GoXLR Indicator"
-                        />
-                    }
-                    tag="Voice"
-                >
-                    <div className="vl-note">
-                        Linux Only Using GoXLR-Utility
-                    </div>
-                </Card>
-            </div>
-
-            <div className="vl-section-title">Quality of Life</div>
-            <div className="vl-divider" role="separator" />
-            <div className="vl-grid" aria-label="Quality of Life">
-                <Card
-                    title="Hide Mic Error Notice"
-                    description="Hides Discord's mic input warning banner (Error 3002) automatically."
-                    enabled={state.enableHideMicErrorNotice}
-                    right={
-                        <Switch
-                            checked={state.enableHideMicErrorNotice}
-                            onChange={(v) =>
-                                update("enableHideMicErrorNotice", v)
-                            }
-                            ariaLabel="Enable Hide Mic Error Notice"
-                        />
-                    }
-                    tag="QoL"
-                />
-                <Card
-                    title="VC Return"
-                    description="Auto-clicks Discord's Reconnect button on startup to rejoin the last voice channel."
-                    enabled={state.enableVCReturn}
-                    right={
-                        <Switch
-                            checked={state.enableVCReturn}
-                            onChange={(v) => update("enableVCReturn", v)}
-                            ariaLabel="Enable VC Return"
-                        />
-                    }
-                    tag="QoL"
-                />
-
-                <Card
-                    title="Random VC Joiner"
-                    description="Adds a toolbar button next to Inbox to join a random accessible voice channel across your servers."
-                    enabled={state.enableRandomVCJoiner}
-                    right={
-                        <Switch
-                            checked={state.enableRandomVCJoiner}
-                            onChange={(v) => update("enableRandomVCJoiner", v)}
-                            ariaLabel="Enable Random VC Joiner"
-                        />
-                    }
-                    tag="QoL"
-                />
-
-                <Card
-                    title="Selective Server Leaver"
-                    description="Allows you to leave multiple servers at once."
-                    enabled={state.enableSelectiveServerLeaver}
-                    right={
-                        <Switch
-                            checked={state.enableSelectiveServerLeaver}
-                            onChange={(v) =>
-                                update("enableSelectiveServerLeaver", v)
-                            }
-                            ariaLabel="Enable Selective Server Leaver"
-                        />
-                    }
-                    tag="QoL"
-                />
-                <Card
-                    title="Selective Friend Remover"
-                    description="Remove multiple friends at once."
-                    enabled={state.enableSelectiveFriendRemover}
-                    right={
-                        <Switch
-                            checked={state.enableSelectiveFriendRemover}
-                            onChange={(v) =>
-                                update("enableSelectiveFriendRemover", v)
-                            }
-                            ariaLabel="Enable Selective Friend Remover"
-                        />
-                    }
-                    tag="QoL"
-                />
-
-                <Card
-                    title="Never Pause Previews"
-                    description="Prevents in-call/PiP previews (screenshare, streams, etc.) from pausing when Discord loses focus."
-                    enabled={state.enableNeverPausePreviews}
-                    right={
-                        <Switch
-                            checked={state.enableNeverPausePreviews}
-                            onChange={(v) =>
-                                update("enableNeverPausePreviews", v)
-                            }
-                            ariaLabel="Enable Never Pause Previews"
-                        />
-                    }
-                    tag="QoL"
-                />
-            </div>
-
-            <div className="vl-section-title">Social &amp; Identity</div>
-            <div className="vl-divider" role="separator" />
-            <div className="vl-grid" aria-label="Social &amp; Identity">
-                <Card
-                    title="Follow User"
-                    description="Right-click a user to follow their voice channel; optionally disconnect when they leave."
-                    enabled={state.enableFollowUser}
-                    right={
-                        <Switch
-                            checked={state.enableFollowUser}
-                            onChange={(v) => update("enableFollowUser", v)}
-                            ariaLabel="Enable Follow User"
-                        />
-                    }
-                    tag="Social"
-                >
-                    <div className="vl-row" style={{ marginTop: 8 }}>
-                        <div className="vl-left" style={{ gap: 6 }}>
-                            <div
-                                style={{
-                                    fontSize: 12.75,
-                                    color: "var(--vl-fg)",
-                                }}
-                            >
-                                Disconnect when target leaves
-                            </div>
-                        </div>
-                        <Switch
-                            checked={state.followUser_disconnectFollow}
-                            onChange={(v) =>
-                                update("followUser_disconnectFollow", v)
-                            }
-                            ariaLabel="Follow User: Disconnect When Target Leaves"
-                        />
-                    </div>
-                    <div className="vl-row" style={{ marginTop: 8 }}>
-                        <div className="vl-left" style={{ gap: 6 }}>
-                            <div
-                                style={{
-                                    fontSize: 12.75,
-                                    color: "var(--vl-fg)",
-                                }}
-                            >
-                                Enable debug logs
-                            </div>
-                        </div>
-                        <Switch
-                            checked={state.followUser_enableDebugLogs}
-                            onChange={(v) =>
-                                update("followUser_enableDebugLogs", v)
-                            }
-                            ariaLabel="Follow User: Enable Debug Logs"
-                        />
-                    </div>
-                </Card>
-                <Card
-                    title="Clone Server Profile"
-                    description="Right-click a member to clone their server profile (nickname, server avatar, server banner) into yours in this server."
-                    enabled={state.enableCloneServerProfile}
-                    right={
-                        <Switch
-                            checked={state.enableCloneServerProfile}
-                            onChange={(v) =>
-                                update("enableCloneServerProfile", v)
-                            }
-                            ariaLabel="Enable Clone Server Profile"
-                        />
-                    }
-                    tag="Social"
-                />
-            </div>
+            {renderSection("voice")}
+            {renderSection("qol")}
+            {renderSection("social")}
         </div>
     );
 }
@@ -878,10 +598,9 @@ const settings = definePluginSettings({
     },
 });
 
-// Render proxy for FakeDeafen button injected via patch
 function FDButton(props: any) {
     const s = (settings.store as any) ?? {};
-    if (!s.enableFakeDeafen) return null;
+    if (!s.enablefakeDeafen) return null;
     const Comp = subs.fakeDeafen?.FakeDeafenToggleButton;
     if (typeof Comp === "function") {
         return Comp(props);
@@ -897,17 +616,21 @@ export default definePlugin({
 
     settings,
 
-    // Inject the FakeDeafen button next to mic/deafen; the button itself will be hidden if disabled.
     patches: [
         {
             find: "#{intl::ACCOUNT_SPEAKING_WHILE_MUTED}",
             replacement: {
-                // This matches the action bar buttons container and injects our toggle component
                 match: /className:\i\.buttons,.{0,50}children:\[/,
                 replace: "$&$self.FDButton(arguments[0]),",
             },
         },
-        // Never Pause Previews: keep streamer previews running and always focused
+        {
+            find: "Quick Switcher",
+            replacement: {
+                match: /(<div[^>]*className=\{[^}]*title[^}]*\}[^<]*<[^>]*role="button"[^>]*>.*?<\/div>)/,
+                replace: "$1$self.renderUserCounter()",
+            },
+        },
         {
             find: "streamerPaused()",
             predicate: () => settings.store.enableNeverPausePreviews,
@@ -926,14 +649,20 @@ export default definePlugin({
         },
     ],
 
-    // Expose the wrapped button so patches can call $self.FDButton(...)
     FDButton: ErrorBoundary.wrap(FDButton, { noop: true }),
 
-    // Aggregate context menus from enabled sub-plugins
+    renderUserCounter() {
+        const { UserCounterComponent } = subs.vermcordUserCounter || {};
+        if (typeof UserCounterComponent === "function") {
+            return UserCounterComponent();
+        }
+        return null;
+    },
+
     contextMenus: {
         "user-context"(children: any[], args: any) {
             const s = (settings.store as any) ?? {};
-            if (s.enableFollowUser) {
+            if (s.enablefollowUser) {
                 try {
                     subs.followUser?.contextMenus?.["user-context"]?.(
                         children,
@@ -943,7 +672,7 @@ export default definePlugin({
                     // ignore
                 }
             }
-            if (s.enableCloneServerProfile) {
+            if (s.enablecloneServerProfile) {
                 try {
                     subs.cloneServerProfile?.contextMenus?.["user-context"]?.(
                         children,
@@ -956,12 +685,11 @@ export default definePlugin({
         },
     },
 
-    // Aggregate flux handlers and forward to enabled sub-plugins
     flux: {
         VOICE_STATE_UPDATES(payload: any) {
             const s = (settings.store as any) ?? {};
             try {
-                if (s.enableFollowUser) {
+                if (s.enablefollowUser) {
                     subs.followUser?.flux?.VOICE_STATE_UPDATES?.call(
                         subs.followUser,
                         payload,
@@ -969,7 +697,7 @@ export default definePlugin({
                 }
             } catch {}
             try {
-                if (s.enableVCReturn) {
+                if (s.enablevcReturn) {
                     subs.vcReturn?.flux?.VOICE_STATE_UPDATES?.call(
                         subs.vcReturn,
                         payload,
@@ -980,14 +708,12 @@ export default definePlugin({
     },
 
     start() {
-        // Initialize settings.store with defaults if missing
         const s = (settings.store as any) ?? {};
         for (const [k, v] of Object.entries(DEFAULTS)) {
             if (!(k in s)) (s as any)[k] = v;
         }
         const S: PrivateState = s as PrivateState;
 
-        // Mirror sub-plugin internal settings
         try {
             if (subs.followUser?.updateSettings) {
                 subs.followUser.updateSettings({
@@ -998,30 +724,16 @@ export default definePlugin({
             }
         } catch {}
 
-        // Start enabled sub-plugins
-        if (S.enableFakeDeafen) safeStart("fakeDeafen");
-        if (S.enableFollowUser) safeStart("followUser");
-        if (S.enableGoXLRCensorIndicator) safeStart("goxlr");
-        if (S.enableHideMicErrorNotice) safeStart("hideMicErrorNotice");
-        if (S.enableRawMic) safeStart("rawMic");
-        if (S.enableVCReturn) safeStart("vcReturn");
-
-        if (S.enableSelectiveServerLeaver) safeStart("selectiveServerLeaver");
-
-        if (S.enableSelectiveFriendRemover) safeStart("selectiveFriendRemover");
-
-        if (S.enableCloneServerProfile) safeStart("cloneServerProfile");
-
-        if (S.enableRandomVCJoiner) safeStart("randomVCJoiner");
+        PLUGINS.forEach((p) => {
+            if (S[`enable${p.key}`]) safeStart(p.key);
+        });
     },
 
     stop() {
-        // Stop all sub-plugins
-        (Object.keys(started) as SubKey[]).forEach((k) => {
-            if (started[k]) safeStop(k);
+        PLUGINS.forEach((p) => {
+            if (started[p.key]) safeStop(p.key);
         });
 
-        // Clear background update timer
         try {
             clearInterval((window as any).__vermLibUpdateTimer);
         } catch {}

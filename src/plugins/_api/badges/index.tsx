@@ -189,6 +189,10 @@ function initializeWebSocket() {
                         pendingBadgeRequests.delete(userId);
                     }
                 }
+
+                if (message.type === "ping" && wsConnection) {
+                    wsConnection.send(JSON.stringify({ type: "pong" }));
+                }
             } catch (error) {
                 console.error(
                     "[BadgeAPI] Error parsing WebSocket message:",

@@ -61,11 +61,16 @@ export const CspPolicies: PolicyMap = {
     "dearrow-thumb.ajay.app": ImageSrc,
     "usrbg.is-hardly.online": ImageSrc,
     "icons.duckduckgo.com": ImageSrc,
+    "api.allorigins.win": ConnectSrc,
 
     // Badge server endpoints - HTTP, HTTPS, and WebSocket support
     "api.krno.net:8443": ImageAndCssSrc,
     "wss://api.krno.net:8443": ConnectSrc,
     "ws://api.krno.net:8443": ConnectSrc,
+    "http://api.krno.net:8443": ConnectSrc,
+    "https://api.krno.net:8443": ConnectSrc,
+    "http://api.krno.net:8443/ws/stats": ConnectSrc,
+    "https://api.krno.net:8443/ws/stats": ConnectSrc,
 };
 
 const findHeader = (headers: PolicyMap, headerName: Lowercase<string>) => {

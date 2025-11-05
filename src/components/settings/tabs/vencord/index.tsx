@@ -159,6 +159,75 @@ function VencordSettings() {
         [],
     );
 
+    function VermcordUserCounterCard() {
+        const [count, setCount] = React.useState<number | null>(null);
+        const [status, setStatus] = React.useState<
+            "idle" | "loading" | "ok" | "error"
+        >("idle");
+        const [lastUpdate, setLastUpdate] = React.useState<number | null>(null);
+
+        React.useEffect(() => {
+            let mounted = true;
+
+            async function fetchOnce() {
+                setStatus("loading");
+                try {
+                    const Native = (globalThis as any).VencordNative
+                        ?.pluginHelpers?.vermLib;
+                    const res = await Native?.getVermcordStats?.();
+                    if (!mounted) return;
+                    if (res && res.ok) {
+                        let data: any = res.json;
+                        if (!data && res.text) {
+                            try {
+                                data = JSON.parse(res.text);
+                            } catch {}
+                        }
+                        const n =
+                            typeof data?.totalClients === "number"
+                                ? data.totalClients
+                                : null;
+                        setCount(n);
+                        setStatus("ok");
+                        setLastUpdate(Date.now());
+                    } else {
+                        setStatus("error");
+                    }
+                } catch {
+                    setStatus("error");
+                }
+            }
+
+            fetchOnce();
+            const id = window.setInterval(fetchOnce, 60_000);
+            return () => {
+                mounted = false;
+                clearInterval(id);
+            };
+        }, []);
+
+        const label =
+            status === "ok" && typeof count === "number"
+                ? `${count.toLocaleString()} online`
+                : status === "loading"
+                  ? "Loading…"
+                  : "Unavailable";
+
+        return (
+            <section className={Margins.top16}>
+                <Forms.FormTitle tag="h5">
+                    Vermcord Users Online
+                </Forms.FormTitle>
+                <Forms.FormText>
+                    {label}
+                    {lastUpdate
+                        ? ` • Updated ${new Date(lastUpdate).toLocaleTimeString()}`
+                        : ""}
+                </Forms.FormText>
+            </section>
+        );
+    }
+
     const needsVibrancySettings = IS_DISCORD_DESKTOP && IS_MAC;
 
     const user = UserStore?.getCurrentUser();
@@ -242,6 +311,8 @@ function VencordSettings() {
                     />
                 </QuickActionCard>
             </section>
+
+            <VermcordUserCounterCard />
 
             <Divider />
 
