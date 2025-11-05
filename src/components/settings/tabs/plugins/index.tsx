@@ -35,6 +35,9 @@ import { PluginCard } from "./PluginCard";
 export const cl = classNameFactory("vc-plugins-");
 export const logger = new Logger("PluginSettings", "#a6d189");
 
+// Define custom plugin categories here
+const CUSTOM_PLUGIN_CATEGORIES = ["vermLib", "PlatformSpoofer"];
+
 function ReloadRequiredCard({ required }: { required: boolean }) {
     return (
         <Card
@@ -225,7 +228,6 @@ function PluginSettings() {
     const plugins = [] as JSX.Element[];
     const requiredPlugins = [] as JSX.Element[];
     const customPlugins = [] as JSX.Element[];
-    const vermLibPlugin = [] as JSX.Element[];
 
     const showApi = searchValue.value.includes("API");
     for (const p of sortedPlugins) {
@@ -234,11 +236,14 @@ function PluginSettings() {
 
         if (!pluginFilter(p)) continue;
 
-        // Force vermLib to always be handled as a custom plugin
-        const isVermLib = p.name === "vermLib";
+        // Check if this is a custom plugin
+        const isCustomPlugin = CUSTOM_PLUGIN_CATEGORIES.some(
+            (category) =>
+                p.name === category || p.name.startsWith(`${category}_`),
+        );
 
-        if (isVermLib) {
-            vermLibPlugin.push(
+        if (isCustomPlugin) {
+            customPlugins.push(
                 <PluginCard
                     onRestartNeeded={(name, key) =>
                         changes.handleChange(`${name}.${key}`)
@@ -294,9 +299,6 @@ function PluginSettings() {
         }
     }
 
-    // Combine vermLib first with other custom plugins
-    const allCustomPlugins = [...vermLibPlugin, ...customPlugins];
-
     return (
         <SettingsTab title="Plugins">
             <ReloadRequiredCard required={changes.hasChanges} />
@@ -344,17 +346,17 @@ function PluginSettings() {
                 </div>
             </div>
 
-            <HeadingTertiary className={Margins.top20}>
-                Custom Plugins
-            </HeadingTertiary>
+            {customPlugins.length > 0 && (
+                <>
+                    <HeadingTertiary className={Margins.top20}>
+                        Custom Plugins
+                    </HeadingTertiary>
 
-            {allCustomPlugins.length ? (
-                <div className={cl("grid")}>{allCustomPlugins}</div>
-            ) : (
-                <Paragraph>No custom plugins available.</Paragraph>
+                    <div className={cl("grid")}>{customPlugins}</div>
+
+                    <Divider className={Margins.top20} />
+                </>
             )}
-
-            <Divider className={Margins.top20} />
 
             <HeadingTertiary className={Margins.top20}>Plugins</HeadingTertiary>
 

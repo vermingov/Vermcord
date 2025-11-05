@@ -208,8 +208,8 @@ export default definePlugin({
 
     commands: [
         {
-            name: "vencord-debug",
-            description: "Send Vencord debug info",
+            name: "vermcord-debug",
+            description: "Send Vermcord debug info",
             predicate: (ctx) =>
                 isPluginDev(UserStore.getCurrentUser()?.id) ||
                 isSupportAllowedChannel(ctx.channel),
@@ -218,7 +218,7 @@ export default definePlugin({
             }),
         },
         {
-            name: "vencord-plugins",
+            name: "vermcord-plugins",
             description: "Send Vencord plugin list",
             predicate: (ctx) =>
                 isPluginDev(UserStore.getCurrentUser()?.id) ||

@@ -233,10 +233,10 @@ function VencordSettings() {
                     )}
                     <QuickAction
                         Icon={GithubIcon}
-                        text="View Source Code"
+                        text="Need help?"
                         action={() =>
                             VencordNative.native.openExternal(
-                                "https://github.com/" + gitRemote,
+                                "https://discord.gg/vEXDdwxv7j",
                             )
                         }
                     />
