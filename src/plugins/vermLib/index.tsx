@@ -35,7 +35,6 @@ type SubKey =
     | "hideMicErrorNotice"
     | "rawMic"
     | "vcReturn"
-    | "awesomeUser"
     | "selectiveServerLeaver"
     | "selectiveFriendRemover"
     | "cloneServerProfile"
@@ -74,8 +73,6 @@ const subs: Record<SubKey, SubPlugin> = {
 
     randomVCJoiner: RandomVCJoiner as unknown as SubPlugin,
 
-    awesomeUser: (require("./plugins/awesomeUser") as any).default as SubPlugin,
-
     selectiveServerLeaver: (require("./plugins/selectiveServerLeaver") as any)
         .default as SubPlugin,
 
@@ -90,8 +87,6 @@ const started: Record<SubKey, boolean> = {
     hideMicErrorNotice: false,
     rawMic: false,
     vcReturn: false,
-
-    awesomeUser: false,
 
     selectiveServerLeaver: false,
 
@@ -138,8 +133,6 @@ type PrivateState = {
 
     enableVCReturn: boolean;
 
-    enableAwesomeUser: boolean;
-
     enableSelectiveServerLeaver: boolean;
 
     enableSelectiveFriendRemover: boolean;
@@ -167,8 +160,6 @@ const DEFAULTS: PrivateState = {
     enableRawMic: false,
 
     enableVCReturn: false,
-
-    enableAwesomeUser: true,
 
     enableSelectiveServerLeaver: false,
 
@@ -405,9 +396,6 @@ function Dashboard() {
         enableRawMic: sInit.enableRawMic ?? DEFAULTS.enableRawMic,
         enableVCReturn: sInit.enableVCReturn ?? DEFAULTS.enableVCReturn,
 
-        enableAwesomeUser:
-            sInit.enableAwesomeUser ?? DEFAULTS.enableAwesomeUser,
-
         enableSelectiveServerLeaver:
             sInit.enableSelectiveServerLeaver ??
             DEFAULTS.enableSelectiveServerLeaver,
@@ -473,24 +461,6 @@ function Dashboard() {
             case "enableVCReturn":
                 value ? safeStart("vcReturn") : safeStop("vcReturn");
                 break;
-            case "enableAwesomeUser":
-                if (value) {
-                    try {
-                        if (
-                            window.confirm(
-                                "AwesomeUser requires a restart to take effect. Restart now?",
-                            )
-                        )
-                            location.reload();
-                    } catch {}
-                } else {
-                    try {
-                        (subs.awesomeUser as any)?.removePronouns?.();
-                    } catch {}
-                    safeStop("awesomeUser");
-                }
-                break;
-
             case "enableSelectiveServerLeaver":
                 value
                     ? safeStart("selectiveServerLeaver")
@@ -562,8 +532,6 @@ function Dashboard() {
             enableRawMic: s.enableRawMic ?? prev.enableRawMic,
             enableVCReturn: s.enableVCReturn ?? prev.enableVCReturn,
 
-            enableAwesomeUser: s.enableAwesomeUser ?? prev.enableAwesomeUser,
-
             enableSelectiveServerLeaver:
                 s.enableSelectiveServerLeaver ??
                 prev.enableSelectiveServerLeaver,
@@ -596,8 +564,6 @@ function Dashboard() {
 
         s.enableVCReturn = state.enableVCReturn;
 
-        s.enableAwesomeUser = state.enableAwesomeUser;
-
         s.enableSelectiveServerLeaver = state.enableSelectiveServerLeaver;
 
         s.enableCloneServerProfile = state.enableCloneServerProfile;
@@ -615,8 +581,6 @@ function Dashboard() {
         state.enableRawMic,
 
         state.enableVCReturn,
-
-        state.enableAwesomeUser,
 
         state.enableSelectiveServerLeaver,
 
@@ -888,19 +852,6 @@ function Dashboard() {
                     </div>
                 </Card>
                 <Card
-                    title="AwesomeUser"
-                    description="Identify Vermcord users: appends a hidden beacon for vermLib users and shows (VermLib) in profiles."
-                    enabled={state.enableAwesomeUser}
-                    right={
-                        <Switch
-                            checked={state.enableAwesomeUser}
-                            onChange={(v) => update("enableAwesomeUser", v)}
-                            ariaLabel="Enable AwesomeUser"
-                        />
-                    }
-                    tag="Social"
-                />
-                <Card
                     title="Clone Server Profile"
                     description="Right-click a member to clone their server profile (nickname, server avatar, server banner) into yours in this server."
                     enabled={state.enableCloneServerProfile}
@@ -1054,8 +1005,6 @@ export default definePlugin({
         if (S.enableHideMicErrorNotice) safeStart("hideMicErrorNotice");
         if (S.enableRawMic) safeStart("rawMic");
         if (S.enableVCReturn) safeStart("vcReturn");
-
-        if (S.enableAwesomeUser) safeStart("awesomeUser");
 
         if (S.enableSelectiveServerLeaver) safeStart("selectiveServerLeaver");
 

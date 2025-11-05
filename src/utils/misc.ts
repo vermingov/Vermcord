@@ -93,13 +93,16 @@ export function identity<T>(value: T): T {
     return value;
 }
 
-// https://developer.mozilla.org/en-US/docs/Web/HTTP/Browser_detection_using_the_user_agent#mobile_tablet_or_desktop
+// [https://developer.mozilla.org/en-US/docs/Web/HTTP/Browser_detection_using_the_user_agent#mobile_tablet_or_desktop](https://developer.mozilla.org/en-US/docs/Web/HTTP/Browser_detection_using_the_user_agent#mobile_tablet_or_desktop)
 // "In summary, we recommend looking for the string Mobi anywhere in the User Agent to detect a mobile device."
 export const isMobile = navigator.userAgent.includes("Mobi");
 
 export const isPluginDev = (id: string) => Object.hasOwn(DevsById, id);
-export const shouldShowContributorBadge = (id: string) =>
-    DevelopersById[id].badge !== false;
+export const shouldShowContributorBadge = (id: string) => {
+    // Only show contributor badge if the user is in DevelopersById AND has badge !== false
+    const developer = DevelopersById[id];
+    return developer != null && developer.badge !== false;
+};
 
 export function pluralise(
     amount: number,
