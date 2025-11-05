@@ -180,7 +180,7 @@ async function generateDebugInfoMessage() {
             () => !ShowCurrentGame.getSetting(),
             false,
         ),
-        "Vencord DevBuild": !IS_STANDALONE,
+        "Vermcord DevBuild": !IS_STANDALONE,
         "Has UserPlugins": Object.values(PluginMeta).some((m) => m.userPlugin),
         "More than two weeks out of date":
             BUILD_TIMESTAMP < Date.now() - 12096e5,
