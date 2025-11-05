@@ -55,7 +55,7 @@ const CONTRIBUTOR_BADGE =
     "https://cdn.discordapp.com/emojis/1434994932686262282.webp?size=64";
 
 const ContributorBadge: ProfileBadge = {
-    description: "Vermcord Contributor",
+    description: "Vermcord Developer",
     image: CONTRIBUTOR_BADGE,
     position: BadgePosition.START,
     shouldShow: ({ userId }) => shouldShowContributorBadge(userId),

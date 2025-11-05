@@ -41,7 +41,7 @@ import { relaunch } from "@utils/native";
 import { onlyOnce } from "@utils/onlyOnce";
 import { makeCodeblock } from "@utils/text";
 import definePlugin from "@utils/types";
-import { checkForUpdates, isOutdated, update } from "@utils/updater";
+import { checkForUpdates, isOutdated, update, getRepo } from "@utils/updater";
 import { Channel } from "@vencord/discord-types";
 import {
     Alerts,
@@ -66,7 +66,7 @@ import plugins, { PluginMeta } from "~plugins";
 
 import SettingsPlugin from "./settings";
 
-const CodeBlockRe = /```js\n(.+?)```/s;
+const CodeBlockRe = /``````/s;
 
 const AdditionalAllowedChannelIds = [
     "1024286218801926184", // Vencord > #bot-spam
@@ -99,6 +99,45 @@ async function forceUpdate() {
     return outdated;
 }
 
+async function getInstalledVermcordVersion() {
+    try {
+        const repo = await getRepo();
+        const repoMatch = repo.match(/github\.com\/([^/]+\/[^/]+)/);
+        const repoPath = repoMatch ? repoMatch[1] : repo;
+
+        const response = await fetch(
+            `https://api.github.com/repos/${repoPath}/releases`,
+        );
+        const releases = await response.json();
+
+        if (!Array.isArray(releases)) {
+            return { version: "Unknown", fullTag: gitHash };
+        }
+
+        const shortHash = gitHash.substring(0, 7);
+        let currentRelease = null;
+
+        for (const release of releases) {
+            const releaseName = release.name || "";
+            if (releaseName.includes(shortHash)) {
+                currentRelease = release;
+                break;
+            }
+        }
+
+        if (currentRelease) {
+            const releaseName = currentRelease.name || "";
+            const versionMatch = releaseName.match(/v([\d.]+)/);
+            const version = versionMatch ? versionMatch[1] : "Unknown";
+            return { version, fullTag: releaseName };
+        }
+
+        return { version: "Unknown", fullTag: gitHash };
+    } catch (e) {
+        return { version: "Unknown", fullTag: gitHash };
+    }
+}
+
 async function generateDebugInfoMessage() {
     const { RELEASE_CHANNEL } = window.GLOBAL_ENV;
 
@@ -113,12 +152,16 @@ async function generateDebugInfoMessage() {
         return `${name} (${navigator.userAgent})`;
     })();
 
+    const { version: installedVersion, fullTag: installedFullTag } =
+        await getInstalledVermcordVersion();
+
     const info = {
-        Vencord:
-            `v${VERSION} • [${gitHash}](<https://github.com/vermingov/Vermcord/commit/${gitHash}>)` +
+        Vermcord:
+            `v${installedVersion} • [${gitHash}](<https://github.com/vermingov/Vermcord/commit/${gitHash}>)` +
             `${SettingsPlugin.additionalInfo} - ${Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(BUILD_TIMESTAMP)}`,
         Client: `${RELEASE_CHANNEL} ~ ${client}`,
         Platform: navigator.platform,
+        "Release Info": installedFullTag,
     };
 
     if (IS_DISCORD_DESKTOP) {
@@ -219,7 +262,7 @@ export default definePlugin({
         },
         {
             name: "vermcord-plugins",
-            description: "Send Vencord plugin list",
+            description: "Send Vermcord plugin list",
             predicate: (ctx) =>
                 isPluginDev(UserStore.getCurrentUser()?.id) ||
                 isSupportAllowedChannel(ctx.channel),
@@ -248,7 +291,7 @@ export default definePlugin({
                             <div>
                                 <Forms.FormText>
                                     You are using an outdated version of
-                                    Vencord! Chances are, your issue is already
+                                    Vermcord! Chances are, your issue is already
                                     fixed.
                                 </Forms.FormText>
                                 <Forms.FormText className={Margins.top8}>
@@ -278,13 +321,13 @@ export default definePlugin({
                     body: (
                         <div>
                             <Forms.FormText>
-                                You are using an externally updated Vencord
+                                You are using an externally updated Vermcord
                                 version, which we do not provide support for!
                             </Forms.FormText>
                             <Forms.FormText className={Margins.top8}>
                                 Please either switch to an{" "}
-                                <Link href="https://vencord.dev/download">
-                                    officially supported version of Vencord
+                                <Link href="https://vermcord.dev/download">
+                                    officially supported version of Vermcord
                                 </Link>
                                 , or contact your package maintainer for support
                                 instead.
@@ -300,17 +343,17 @@ export default definePlugin({
                     body: (
                         <div>
                             <Forms.FormText>
-                                You are using a custom build of Vencord, which
+                                You are using a custom build of Vermcord, which
                                 we do not provide support for!
                             </Forms.FormText>
 
                             <Forms.FormText className={Margins.top8}>
                                 We only provide support for{" "}
-                                <Link href="https://vencord.dev/download">
+                                <Link href="https://vermcord.dev/download">
                                     official builds
                                 </Link>
                                 . Either{" "}
-                                <Link href="https://vencord.dev/download">
+                                <Link href="https://vermcord.dev/download">
                                     switch to an official build
                                 </Link>{" "}
                                 or figure your issue out yourself.
@@ -383,8 +426,8 @@ export default definePlugin({
             PermissionStore.can(PermissionsBits.SEND_MESSAGES, props.channel)
         ) {
             if (
-                props.message.content.includes("/vencord-debug") ||
-                props.message.content.includes("/vencord-plugins")
+                props.message.content.includes("/vermcord-debug") ||
+                props.message.content.includes("/vermcord-plugins")
             ) {
                 buttons.push(
                     <Button
@@ -396,7 +439,7 @@ export default definePlugin({
                             })
                         }
                     >
-                        Run /vencord-debug
+                        Run /vermcord-debug
                     </Button>,
                     <Button
                         key="vc-plg-list"
@@ -407,7 +450,7 @@ export default definePlugin({
                             })
                         }
                     >
-                        Run /vencord-plugins
+                        Run /vermcord-plugins
                     </Button>,
                 );
             }
@@ -460,10 +503,10 @@ export default definePlugin({
 
             return (
                 <Card className={`vc-warning-card ${Margins.top8}`}>
-                    Please do not private message Vencord plugin developers for
+                    Please do not private message Vermcord plugin developers for
                     support!
                     <br />
-                    Instead, use the Vencord support channel:{" "}
+                    Instead, use the Vermcord support channel:{" "}
                     {Parser.parse(
                         "https://discord.com/channels/1015060230222131221/1026515880080842772",
                     )}

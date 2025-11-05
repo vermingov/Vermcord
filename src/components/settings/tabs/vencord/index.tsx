@@ -46,7 +46,7 @@ import { NotificationSection } from "./NotificationSettings";
 const DEFAULT_DONATE_IMAGE =
     "https://media.discordapp.net/stickers/1434975568364961843.webp?size=160&amp;quality=lossless";
 const SHIGGY_DONATE_IMAGE =
-    "https://media.discordapp.net/stickers/1401696926558191616.webp?size=160&amp;quality=lossless";
+    "https://media.discordapp.net/stickers/1434975568364961843.webp?size=160&amp;quality=lossless";
 const VENNIE_DONATOR_IMAGE =
     "https://cdn.discordapp.com/emojis/1238120638020063377.png";
 const COZY_CONTRIB_IMAGE =
