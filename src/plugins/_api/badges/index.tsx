@@ -72,15 +72,142 @@ let CustomBadges = {} as Record<
     string,
     Array<{ description: string; imageUrl: string }>
 >;
+
+// Badge version tracking for forcing React updates
+let badgeVersions = {} as Record<string, number>;
+
+// Cache timestamp tracking with TTL (time-to-live) in milliseconds
+let badgeTimestamps = {} as Record<string, number>;
+const BADGE_CACHE_TTL = 3000; // 3 seconds - adjust as needed
+
 let wsConnection: WebSocket | null = null;
 const logger = new Logger("BadgeAPI");
 const pendingBadgeRequests = new Set<string>();
+const requestThrottleTimers = {} as Record<string, NodeJS.Timeout>;
 
-// Track badge hashes to detect changes
-const badgeHashes = new Map<string, string>();
+// Get current badge version for a user
+function getBadgeVersion(userId: string): number {
+    return badgeVersions[userId] || 0;
+}
 
-function hashBadges(badges: Array<{ description: string; imageUrl: string }>) {
-    return JSON.stringify(badges);
+// Increment badge version to trigger React updates
+function incrementBadgeVersion(userId: string) {
+    badgeVersions[userId] = (badgeVersions[userId] || 0) + 1;
+    console.log(
+        `%c[BadgeAPI] Badge version for ${userId} incremented to ${badgeVersions[userId]}`,
+        "color: #00aaff; font-weight: bold;",
+    );
+}
+
+// Check if cache is stale and needs refresh
+function isCacheStale(userId: string): boolean {
+    const lastFetch = badgeTimestamps[userId];
+    if (!lastFetch) return true;
+
+    const now = Date.now();
+    const age = now - lastFetch;
+    const isStale = age > BADGE_CACHE_TTL;
+
+    if (isStale) {
+        console.log(
+            `%c[BadgeAPI] Cache for ${userId} is stale (${age}ms old, TTL: ${BADGE_CACHE_TTL}ms)`,
+            "color: #ffaa00; font-weight: bold;",
+        );
+    }
+
+    return isStale;
+}
+
+// Update cache timestamp
+function updateCacheTimestamp(userId: string) {
+    badgeTimestamps[userId] = Date.now();
+}
+
+// Check if badges have actually changed
+function haveBadgesChanged(
+    userId: string,
+    newBadges: Array<{ description: string; imageUrl: string }>,
+): boolean {
+    const oldBadges = CustomBadges[userId];
+
+    // If no old badges exist, it's a change
+    if (!oldBadges || oldBadges.length !== newBadges.length) {
+        return true;
+    }
+
+    // Compare each badge
+    for (let i = 0; i < newBadges.length; i++) {
+        const oldBadge = oldBadges[i];
+        const newBadge = newBadges[i];
+
+        if (
+            oldBadge.description !== newBadge.description ||
+            oldBadge.imageUrl !== newBadge.imageUrl
+        ) {
+            console.log(
+                `%c[BadgeAPI] Badge change detected for ${userId}:`,
+                "color: #ffaa00; font-weight: bold;",
+            );
+            console.log(
+                `  Old: ${oldBadge.description} (${oldBadge.imageUrl})`,
+            );
+            console.log(
+                `  New: ${newBadge.description} (${newBadge.imageUrl})`,
+            );
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// Notify all systems that badges have changed
+function notifyBadgeUpdate(userId: string) {
+    console.log(
+        `%c[BadgeAPI] 🔄 Notifying badge update for ${userId}`,
+        "color: #0099ff; font-weight: bold;",
+    );
+
+    // Increment version to trigger React updates
+    incrementBadgeVersion(userId);
+
+    // Dispatch multiple event types to ensure updates are caught
+    FluxDispatcher.dispatch({
+        type: "USER_UPDATE",
+        user: { id: userId },
+    });
+
+    FluxDispatcher.dispatch({
+        type: "USER_PROFILE_UPDATE",
+        userId: userId,
+    });
+
+    FluxDispatcher.dispatch({
+        type: "PROFILE_UPDATE",
+        userId: userId,
+    });
+
+    // Also dispatch a custom event
+    FluxDispatcher.dispatch({
+        type: "BADGE_UPDATE",
+        userId: userId,
+        version: badgeVersions[userId],
+    });
+
+    // Force a delayed update as well
+    setTimeout(() => {
+        FluxDispatcher.dispatch({
+            type: "USER_UPDATE",
+            user: { id: userId },
+        });
+    }, 50);
+
+    setTimeout(() => {
+        FluxDispatcher.dispatch({
+            type: "USER_UPDATE",
+            user: { id: userId },
+        });
+    }, 150);
 }
 
 // Initialize WebSocket connection
@@ -96,7 +223,10 @@ function initializeWebSocket() {
         const userId = UserStore.getCurrentUser()?.id || "anonymous";
         const wsUrl = `wss://api.krno.net:8443/ws?id=${encodeURIComponent(userId)}`;
 
-        console.log(`[Vermcord] Attempting to connect to Server`);
+        console.log(
+            `%c[Vermcord] Attempting to connect to Badge Server`,
+            "color: #0099ff; font-weight: bold;",
+        );
 
         wsConnection = new WebSocket(wsUrl);
 
@@ -109,87 +239,94 @@ function initializeWebSocket() {
 
             // Request badges for current user on connection
             if (userId) {
-                requestUserBadges(userId);
+                requestUserBadgesThrottled(userId, true); // Force immediate request
             }
         };
 
         wsConnection.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
-                console.log("[BadgeAPI] WebSocket message received:", message);
 
-                // Handle getUserBadges response
-                if (message.type === "getUserBadges") {
-                    const userId = message.payload?.id;
-                    if (userId) {
-                        let badgesChanged = false;
+                // Handle getUserBadges response (client request)
+                if (message.type === "getUserBadges" && message.payload?.id) {
+                    const userId = message.payload.id;
+                    const badges = message.badges || [];
 
-                        if (message.badges && message.badges.length > 0) {
-                            const newBadges = message.badges.map(
-                                (badge: any) => ({
-                                    description: badge.description,
-                                    imageUrl: badge.imageUrl,
-                                }),
-                            );
+                    console.log(
+                        `%c[BadgeAPI] Received badge response for user ${userId}: ${badges.length} badges`,
+                        "color: #00ff00; font-weight: bold;",
+                    );
 
-                            const newHash = hashBadges(newBadges);
-                            const oldHash = badgeHashes.get(userId);
+                    const newBadges = badges.map((b: any) => ({
+                        description: b.description,
+                        imageUrl: b.imageUrl,
+                    }));
 
-                            // Check if badges actually changed
-                            if (oldHash !== newHash) {
-                                badgesChanged = true;
-                                badgeHashes.set(userId, newHash);
-                                CustomBadges[userId] = newBadges;
-
-                                console.log(
-                                    `%c[BadgeAPI] ✓ Badge update for user ${userId}: ${newBadges.length} badge(s)`,
-                                    "color: #00ff00; font-weight: bold;",
-                                );
-
-                                newBadges.forEach(
-                                    (badge: any, index: number) => {
-                                        console.log(
-                                            `  [${index + 1}] ${badge.description} - ${badge.imageUrl}`,
-                                        );
-                                    },
-                                );
-                            } else {
-                                console.log(
-                                    `%c[BadgeAPI] ℹ Badges unchanged for user ${userId}`,
-                                    "color: #0099ff; font-weight: bold;",
-                                );
-                            }
-                        } else {
-                            // No badges - check if this is a change
-                            const oldHash = badgeHashes.get(userId);
-                            if (oldHash !== undefined) {
-                                badgesChanged = true;
-                                badgeHashes.delete(userId);
-                            }
-
-                            delete CustomBadges[userId];
-                            console.log(
-                                `%c[BadgeAPI] ✓ User ${userId} has no badges, cleared cache`,
-                                "color: #00ff00; font-weight: bold;",
-                            );
+                    // Check if badges actually changed
+                    if (haveBadgesChanged(userId, newBadges)) {
+                        console.log(
+                            `%c[BadgeAPI] ✓ Badges changed, updating...`,
+                            "color: #00ff00; font-weight: bold;",
+                        );
+                        CustomBadges[userId] = newBadges;
+                        updateCacheTimestamp(userId);
+                        notifyBadgeUpdate(userId);
+                    } else {
+                        console.log(
+                            `%c[BadgeAPI] ℹ No badge changes detected for ${userId}`,
+                            "color: #888888;",
+                        );
+                        // Still update in case this is the first load
+                        if (!CustomBadges[userId]) {
+                            CustomBadges[userId] = newBadges;
                         }
-
-                        // Only dispatch if badges actually changed
-                        if (badgesChanged) {
-                            console.log(
-                                `[BadgeAPI] Dispatching PROFILE_UPDATE for user ${userId}`,
-                            );
-                            FluxDispatcher.dispatch({
-                                type: "PROFILE_UPDATE",
-                                user: { id: userId },
-                            });
-                        }
-
-                        // Remove from pending requests
-                        pendingBadgeRequests.delete(userId);
+                        updateCacheTimestamp(userId);
+                        notifyBadgeUpdate(userId);
                     }
+
+                    pendingBadgeRequests.delete(userId);
                 }
 
+                // Handle server-initiated badge push (for badge updates)
+                if (
+                    message.type === "badgeUpdate" ||
+                    message.type === "updateBadge"
+                ) {
+                    const userId = message.userId;
+                    const badges = message.badges || [];
+
+                    console.log(
+                        `%c[BadgeAPI] 📡 Server pushed badge update for user ${userId}: ${badges.length} badges`,
+                        "color: #ffaa00; font-weight: bold;",
+                    );
+
+                    const newBadges = badges.map((b: any) => ({
+                        description: b.description,
+                        imageUrl: b.imageUrl,
+                    }));
+
+                    // Log the badges
+                    badges.forEach((b: any, i: number) => {
+                        console.log(
+                            `%c  [${i + 1}] ${b.description} - ${b.imageUrl}`,
+                            "color: #ffaa00;",
+                        );
+                    });
+
+                    // Always update on server push and notify
+                    if (haveBadgesChanged(userId, newBadges)) {
+                        console.log(
+                            `%c[BadgeAPI] ✓ Server push contains changes, updating...`,
+                            "color: #00ff00; font-weight: bold;",
+                        );
+                    }
+
+                    CustomBadges[userId] = newBadges;
+                    updateCacheTimestamp(userId);
+                    notifyBadgeUpdate(userId);
+                }
+
+                // Handle ping/pong
                 if (message.type === "ping" && wsConnection) {
                     wsConnection.send(JSON.stringify({ type: "pong" }));
                 }
@@ -211,11 +348,10 @@ function initializeWebSocket() {
 
         wsConnection.onclose = () => {
             console.warn(
-                "%c[BadgeAPI] ⚠ WebSocket disconnected from badge server",
+                "%c[BadgeAPI] ⚠ WebSocket disconnected, attempting reconnect in 5s",
                 "color: #ffaa00; font-weight: bold;",
             );
             wsConnection = null;
-            // Attempt to reconnect after 5 seconds
             setTimeout(initializeWebSocket, 5000);
         };
     } catch (error) {
@@ -227,23 +363,57 @@ function initializeWebSocket() {
     }
 }
 
+// Request badges with throttling to prevent spam
+function requestUserBadgesThrottled(userId: string, immediate = false) {
+    // Clear existing throttle timer if immediate is true
+    if (immediate && requestThrottleTimers[userId]) {
+        clearTimeout(requestThrottleTimers[userId]);
+        delete requestThrottleTimers[userId];
+    }
+
+    // If there's already a pending throttled request, don't create another
+    if (requestThrottleTimers[userId] && !immediate) {
+        console.log(
+            `%c[BadgeAPI] Request for ${userId} is throttled, will execute soon`,
+            "color: #888888;",
+        );
+        return;
+    }
+
+    // Immediate execution or throttled
+    const executeRequest = () => {
+        delete requestThrottleTimers[userId];
+        requestUserBadges(userId);
+    };
+
+    if (immediate) {
+        executeRequest();
+    } else {
+        // Throttle requests by 500ms
+        requestThrottleTimers[userId] = setTimeout(executeRequest, 500);
+    }
+}
+
 // Request badges for a specific user
 function requestUserBadges(userId: string) {
     if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
         console.warn(
-            `%c[BadgeAPI] ⚠ WebSocket not connected, cannot request badges for user ${userId}`,
+            `%c[BadgeAPI] ⚠ WebSocket not connected, cannot request badges for ${userId}`,
             "color: #ffaa00; font-weight: bold;",
         );
         return;
     }
 
-    // Avoid duplicate requests
     if (pendingBadgeRequests.has(userId)) {
+        console.log(`[BadgeAPI] Badge request already pending for ${userId}`);
         return;
     }
 
     try {
-        console.log(`[BadgeAPI] Requesting badges for user: ${userId}`);
+        console.log(
+            `%c[BadgeAPI] 📤 Requesting badges for user: ${userId}`,
+            "color: #0099ff; font-weight: bold;",
+        );
         pendingBadgeRequests.add(userId);
         wsConnection.send(
             JSON.stringify({
@@ -253,7 +423,7 @@ function requestUserBadges(userId: string) {
         );
     } catch (error) {
         console.error(
-            `%c[BadgeAPI] ✗ Failed to request user badges for ${userId}:`,
+            `%c[BadgeAPI] ✗ Failed to request badges for ${userId}:`,
             "color: #ff0000; font-weight: bold;",
             error,
         );
@@ -322,7 +492,7 @@ export default definePlugin({
             replacement: {
                 match: /(?=;return 0===(\i)\.length\?)(?<=(\i)\.useMemo.+?)/,
                 replace:
-                    ";$1=$2.useMemo(()=>[...$self.getBadges(arguments[0].displayProfile),...$1],[$1])",
+                    ";$1=$2.useMemo(()=>[...$self.getBadges(arguments[0].displayProfile),...$1],[$1,$self.getBadgeVersion(arguments[0].displayProfile?.userId)])",
             },
         },
         {
@@ -364,9 +534,11 @@ export default definePlugin({
     toolboxActions: {
         async "Refetch Badges"() {
             await loadBadges(true);
+            // Clear all cache timestamps to force fresh requests
+            badgeTimestamps = {};
             Toasts.show({
                 id: Toasts.genId(),
-                message: "Successfully refetched badges!",
+                message: "Successfully refetched badges! Cache cleared.",
                 type: Toasts.Type.SUCCESS,
             });
         },
@@ -424,14 +596,28 @@ export default definePlugin({
         );
         clearInterval(intervalId);
         clearInterval(wsReconnectInterval);
+
+        // Clear all throttle timers
+        Object.values(requestThrottleTimers).forEach((timer) =>
+            clearTimeout(timer),
+        );
+
         if (wsConnection) {
             wsConnection.close();
             wsConnection = null;
         }
+
+        badgeVersions = {};
+        badgeTimestamps = {};
         console.log(
             "%c[BadgeAPI] ✓ Plugin stopped",
             "color: #00ff00; font-weight: bold;",
         );
+    },
+
+    // Expose badge version getter
+    getBadgeVersion(userId: string) {
+        return getBadgeVersion(userId);
     },
 
     getBadges(props: { userId: string; user?: User; guildId: string }) {
@@ -439,31 +625,22 @@ export default definePlugin({
 
         try {
             props.userId ??= props.user?.id!;
-            console.log(
-                `%c[BadgeAPI] getBadges called for user: ${props.userId}`,
-                "color: #0099ff; font-weight: bold;",
-            );
 
-            // Request badges if we don't have them yet
-            if (!CustomBadges[props.userId]) {
+            // Check if cache is stale and request fresh badges
+            if (isCacheStale(props.userId)) {
                 console.log(
-                    `%c[BadgeAPI] No cached badges for ${props.userId}, requesting from server`,
+                    `%c[BadgeAPI] Cache stale for ${props.userId}, requesting fresh badges`,
                     "color: #ffaa00; font-weight: bold;",
                 );
-                requestUserBadges(props.userId);
+                requestUserBadgesThrottled(props.userId);
             }
 
-            // Get donor badges and custom badges
+            // Get all badge types
             const donorBadges = this.getDonorBadges(props.userId) || [];
             const customBadges = this.getCustomBadges(props.userId) || [];
-
             const badges = _getBadges(props);
-            const allBadges = [...badges, ...customBadges, ...donorBadges];
 
-            console.log(
-                `%c[BadgeAPI] Total badges for ${props.userId}: ${allBadges.length} (Vencord: ${badges.length}, Custom: ${customBadges.length}, Donor: ${donorBadges.length})`,
-                "color: #0099ff; font-weight: bold;",
-            );
+            const allBadges = [...badges, ...customBadges, ...donorBadges];
 
             return allBadges;
         } catch (e) {
@@ -601,7 +778,7 @@ export default definePlugin({
         }
 
         console.log(
-            `%c[BadgeAPI] Found ${customBadgeList.length} custom badge(s) for user ${userId}`,
+            `%c[BadgeAPI] Getting ${customBadgeList.length} custom badge(s) for ${userId}`,
             "color: #00ff00; font-weight: bold;",
         );
 

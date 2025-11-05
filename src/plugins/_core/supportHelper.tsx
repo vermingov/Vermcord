@@ -326,7 +326,7 @@ export default definePlugin({
                             </Forms.FormText>
                             <Forms.FormText className={Margins.top8}>
                                 Please either switch to an{" "}
-                                <Link href="https://vermcord.dev/download">
+                                <Link href="https://vermcord.com/download">
                                     officially supported version of Vermcord
                                 </Link>
                                 , or contact your package maintainer for support
@@ -349,11 +349,11 @@ export default definePlugin({
 
                             <Forms.FormText className={Margins.top8}>
                                 We only provide support for{" "}
-                                <Link href="https://vermcord.dev/download">
+                                <Link href="https://vermcord.com/download">
                                     official builds
                                 </Link>
                                 . Either{" "}
-                                <Link href="https://vermcord.dev/download">
+                                <Link href="https://vermcord.com/download">
                                     switch to an official build
                                 </Link>{" "}
                                 or figure your issue out yourself.
@@ -508,7 +508,7 @@ export default definePlugin({
                     <br />
                     Instead, use the Vermcord support channel:{" "}
                     {Parser.parse(
-                        "https://discord.com/channels/1015060230222131221/1026515880080842772",
+                        "https://discord.com/channels/1435330454004830361/1435404471323857059",
                     )}
                     {!ChannelStore.getChannel(SUPPORT_CHANNEL_ID) &&
                         " (Click the link to join)"}
