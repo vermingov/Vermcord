@@ -61,12 +61,10 @@ function getChannelName(channel: Channel): string {
 }
 
 function isSystemMessage(message: any): boolean {
-    // Check if message has content or embeds (real messages have these)
     if (!message.content && (!message.embeds || message.embeds.length === 0)) {
         return true;
     }
 
-    // Check if message type is not 0 (0 = normal message)
     if (message.type !== 0) {
         return true;
     }
@@ -88,7 +86,6 @@ async function loadAllMessages(
         `[MessageDeleter] Starting to load messages for user ${userId} in channel ${channelId}`,
     );
 
-    // First, get currently loaded messages
     const currentMessages = MessageStore.getMessages(channelId);
     if (currentMessages?._array) {
         currentMessages._array.forEach((msg: any) => {
@@ -97,7 +94,6 @@ async function loadAllMessages(
             }
         });
 
-        // Get oldest message ID for pagination
         if (currentMessages._array.length > 0) {
             oldestMessageId = currentMessages._array[0].id;
         }
@@ -107,7 +103,6 @@ async function loadAllMessages(
         );
     }
 
-    // Load more messages by fetching older batches
     while (batchCount < maxBatches) {
         try {
             const query: any = {
@@ -136,7 +131,6 @@ async function loadAllMessages(
                     userMessageIds.add(msg.id);
                     foundUserMessages++;
                 }
-                // Update oldest message ID
                 oldestMessageId = msg.id;
             });
 
@@ -146,18 +140,15 @@ async function loadAllMessages(
 
             batchCount++;
 
-            // Notify progress callback
             if (onBatchProgress) {
                 onBatchProgress(batchCount, maxBatches);
             }
 
-            // If we got less than 100 messages, we've reached the end
             if (response.body.length < 100) {
                 console.log(`[MessageDeleter] Reached end of channel history`);
                 break;
             }
 
-            // Small delay to avoid rate limiting
             await new Promise((resolve) => setTimeout(resolve, 100));
         } catch (error) {
             console.error(
@@ -175,22 +166,126 @@ async function loadAllMessages(
     return result;
 }
 
+// Global deletion progress element
+let deletionProgressElement: HTMLElement | null = null;
+
+function createDeletionProgressToast(): HTMLElement {
+    const container = document.createElement("div");
+    container.id = "md-deletion-progress";
+    container.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--background-secondary);
+        border: 1px solid var(--background-modifier-accent);
+        border-radius: 12px;
+        padding: 16px 24px;
+        min-width: 360px;
+        max-width: 500px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        z-index: 10000;
+        backdrop-filter: blur(10px);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif;
+        transition: opacity 0.3s ease, transform 0.3s ease;
+    `;
+
+    container.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <svg class="md-spinner" width="20" height="20" viewBox="0 0 24 24" fill="none" style="animation: md-spin 1s linear infinite;">
+                    <circle cx="12" cy="12" r="10" stroke="var(--brand-500)" stroke-width="2" stroke-dasharray="15.7 31.4" />
+                </svg>
+                <span style="color: var(--header-primary); font-weight: 500; font-size: 14px;">
+                    Deleting Messages
+                </span>
+            </div>
+            <span style="color: var(--text-muted); font-size: 12px; font-weight: 500;">
+                <span id="md-progress-text">0/0</span>
+            </span>
+        </div>
+        <div style="
+            width: 100%;
+            height: 4px;
+            background: var(--background-tertiary);
+            border-radius: 2px;
+            overflow: hidden;
+        ">
+            <div id="md-progress-bar" style="
+                height: 100%;
+                background: linear-gradient(90deg, var(--brand-500, #5865F2), var(--brand-560, #4752C4));
+                border-radius: 2px;
+                width: 0%;
+                transition: width 0.2s ease;
+                box-shadow: 0 0 12px rgba(88, 101, 242, 0.6);
+            "></div>
+        </div>
+    `;
+
+    // Add spinning animation
+    if (!document.getElementById("md-spinner-styles")) {
+        const style = document.createElement("style");
+        style.id = "md-spinner-styles";
+        style.textContent = `
+            @keyframes md-spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    return container;
+}
+
+function showDeletionProgress(deleted: number, total: number) {
+    if (!deletionProgressElement) {
+        deletionProgressElement = createDeletionProgressToast();
+        document.body.appendChild(deletionProgressElement);
+    }
+
+    const percentage = (deleted / total) * 100;
+    const progressBar = deletionProgressElement.querySelector(
+        "#md-progress-bar",
+    ) as HTMLElement;
+    const progressText =
+        deletionProgressElement.querySelector("#md-progress-text");
+
+    if (progressBar) {
+        progressBar.style.width = `${percentage}%`;
+    }
+    if (progressText) {
+        progressText.textContent = `${deleted}/${total}`;
+    }
+}
+
+function hideDeletionProgress() {
+    if (deletionProgressElement) {
+        deletionProgressElement.style.opacity = "0";
+        deletionProgressElement.style.transform =
+            "translateX(-50%) translateY(-10px)";
+
+        setTimeout(() => {
+            deletionProgressElement?.remove();
+            deletionProgressElement = null;
+        }, 300);
+    }
+}
+
 async function deleteMessagesWithDelay(
     channelId: string,
     messageIds: string[],
     onProgress?: (deleted: number, total: number) => void,
-) {
+): Promise<number> {
     let deleted = 0;
     const total = messageIds.length;
 
-    // Calculate dynamic delay based on message count
-    // More messages = faster (min 5ms), fewer messages = slower (max 30ms)
-    const maxDelay = Math.max(5, Math.min(30, 30 - total / 100));
-    const minDelay = Math.max(5, maxDelay - 15);
+    // FAST: 200-400ms per message
+    const minDelay = 200;
+    const maxDelay = 400;
 
     for (const messageId of messageIds) {
         try {
-            // Double-check: verify the message isn't marked as deleted by messagelogger before attempting deletion
             const messageElement = document.querySelector(
                 `li[id*="${messageId}"]`,
             );
@@ -199,26 +294,76 @@ async function deleteMessagesWithDelay(
                 messageElement?.classList.contains("messagelogger-edited")
             ) {
                 console.log(
-                    `[MessageDeleter] Skipping ${messageId} - message logger detected`,
+                    `[MessageDeleter] Skipping ${messageId} - already deleted`,
                 );
                 continue;
             }
 
-            await RestAPI.del({
-                url: `/channels/${channelId}/messages/${messageId}`,
-            });
-            deleted++;
+            try {
+                const response = await RestAPI.del({
+                    url: `/channels/${channelId}/messages/${messageId}`,
+                });
 
-            if (onProgress) {
-                onProgress(deleted, total);
+                if (
+                    response &&
+                    (response.status === 204 ||
+                        response.status === 200 ||
+                        response.ok)
+                ) {
+                    deleted++;
+
+                    if (onProgress) {
+                        onProgress(deleted, total);
+                    }
+                }
+            } catch (error: any) {
+                const errorCode = error?.status || error?.code;
+
+                if (errorCode === 404) {
+                    console.log(
+                        `[MessageDeleter] Message ${messageId} already deleted (404)`,
+                    );
+                    continue;
+                }
+
+                if (errorCode === 403) {
+                    console.log(
+                        `[MessageDeleter] No permission to delete ${messageId} (403)`,
+                    );
+                    continue;
+                }
+
+                // 429 = rate limited - WAIT 5 SECONDS
+                if (errorCode === 429) {
+                    console.warn(
+                        `[MessageDeleter] Rate limited! Waiting 5s...`,
+                    );
+                    await new Promise((resolve) => setTimeout(resolve, 5000));
+                    try {
+                        await RestAPI.del({
+                            url: `/channels/${channelId}/messages/${messageId}`,
+                        });
+                        deleted++;
+                        if (onProgress) {
+                            onProgress(deleted, total);
+                        }
+                    } catch (retryError) {
+                        console.error(
+                            `[MessageDeleter] Failed even after retry: ${messageId}`,
+                        );
+                    }
+                    continue;
+                }
+
+                throw error;
             }
 
             const delay = randomDelay(minDelay, maxDelay);
             await new Promise((resolve) => setTimeout(resolve, delay));
-        } catch (error) {
+        } catch (error: any) {
             console.error(
-                `[MessageDeleter] Failed to delete message ${messageId}:`,
-                error,
+                `[MessageDeleter] Error processing ${messageId}:`,
+                error?.message,
             );
         }
     }
@@ -231,8 +376,6 @@ function DeleteMessageModal(props: { modalProps: any }) {
     const FIXED_MODAL_WIDTH = "min(520px, calc(100vw - 64px))";
 
     const [count, setCount] = React.useState("10");
-    const [working, setWorking] = React.useState(false);
-    const [progress, setProgress] = React.useState<string>("");
     const [loading, setLoading] = React.useState(true);
     const [userMessageIds, setUserMessageIds] = React.useState<string[]>([]);
     const [loadingProgress, setLoadingProgress] = React.useState(0);
@@ -245,7 +388,6 @@ function DeleteMessageModal(props: { modalProps: any }) {
     const currentUserId = UserStore.getCurrentUser()?.id;
     const isGuildChannel = channel?.guild_id ? true : false;
 
-    // Preload messages on mount
     React.useEffect(() => {
         if (!channelId || !currentUserId) {
             setLoading(false);
@@ -253,11 +395,8 @@ function DeleteMessageModal(props: { modalProps: any }) {
         }
 
         setLoading(true);
-        setProgress("Loading your messages...");
         setLoadingProgress(0);
 
-        // For guild channels, load up to 10 batches (1000 messages checked)
-        // For DMs, load up to 50 batches (5000 messages checked)
         const maxBatches = isGuildChannel ? 10 : 50;
 
         loadAllMessages(
@@ -272,7 +411,6 @@ function DeleteMessageModal(props: { modalProps: any }) {
             .then((messageIds) => {
                 setUserMessageIds(messageIds);
                 setLoading(false);
-                setProgress("");
                 setLoadingProgress(100);
                 console.log(
                     `[MessageDeleter] Ready with ${messageIds.length} messages`,
@@ -284,7 +422,6 @@ function DeleteMessageModal(props: { modalProps: any }) {
                     error,
                 );
                 setLoading(false);
-                setProgress("");
                 Toasts.show({
                     message:
                         "Failed to load messages. Using cached messages only.",
@@ -409,11 +546,13 @@ function DeleteMessageModal(props: { modalProps: any }) {
         });
         if (!confirmed) return;
 
-        setWorking(true);
-        setProgress(`Deleting 0/${messageCount} messages...`);
+        // Close modal and show progress
+        onClose?.();
+        showDeletionProgress(0, messageCount);
+
+        const startTime = Date.now();
 
         try {
-            // Sort messages by ID (older first) and take the requested count
             const messagesToDelete = userMessageIds
                 .sort((a, b) => a.localeCompare(b))
                 .slice(0, messageCount);
@@ -422,27 +561,49 @@ function DeleteMessageModal(props: { modalProps: any }) {
                 channelId,
                 messagesToDelete,
                 (deleted, total) => {
-                    setProgress(`Deleting ${deleted}/${total} messages...`);
+                    showDeletionProgress(deleted, total);
                 },
             );
 
-            setWorking(false);
-            Toasts.show({
-                message: `Successfully deleted ${deletedCount} message${deletedCount !== 1 ? "s" : ""} in ${channelName}`,
-                type: Toasts.Type.SUCCESS,
-                id: Toasts.genId(),
-            });
+            const endTime = Date.now();
+            const durationMs = endTime - startTime;
+            const durationSec = (durationMs / 1000).toFixed(1);
+            const durationMin = (durationMs / 60000).toFixed(1);
 
-            onClose?.();
+            let timeString = "";
+            if (durationMs < 1000) {
+                timeString = `${durationMs}ms`;
+            } else if (durationMs < 60000) {
+                timeString = `${durationSec}s`;
+            } else {
+                timeString = `${durationMin}m`;
+            }
+
+            hideDeletionProgress();
+
+            setTimeout(() => {
+                Toasts.show({
+                    message: `Successfully deleted ${deletedCount} message${deletedCount !== 1 ? "s" : ""} in ${channelName} (took ${timeString})`,
+                    type: Toasts.Type.SUCCESS,
+                    id: Toasts.genId(),
+                });
+            }, 300);
         } catch (error) {
             console.error("[MessageDeleter] Error:", error);
-            Toasts.show({
-                message:
-                    "Failed to delete messages. Check console for details.",
-                type: Toasts.Type.FAILURE,
-                id: Toasts.genId(),
-            });
-            setWorking(false);
+
+            const endTime = Date.now();
+            const durationMs = endTime - startTime;
+            const durationSec = (durationMs / 1000).toFixed(1);
+
+            hideDeletionProgress();
+
+            setTimeout(() => {
+                Toasts.show({
+                    message: `Failed to delete messages after ${durationSec}s. Check console for details.`,
+                    type: Toasts.Type.FAILURE,
+                    id: Toasts.genId(),
+                });
+            }, 300);
         }
     };
 
@@ -486,12 +647,11 @@ function DeleteMessageModal(props: { modalProps: any }) {
                                     />
                                 </div>
                                 <Forms.FormText className="md-loading-text">
-                                    {progress || "Loading messages..."}
+                                    Loading messages...
                                 </Forms.FormText>
                             </div>
                         ) : (
                             <>
-                                {/* Total messages stat card */}
                                 <div
                                     className="md-stat-card"
                                     style={{ marginBottom: 16 }}
@@ -539,7 +699,6 @@ function DeleteMessageModal(props: { modalProps: any }) {
                                             setCount(e.currentTarget.value)
                                         }
                                         placeholder="Enter number of messages"
-                                        disabled={working}
                                         min="1"
                                         max={totalMessages}
                                         style={{
@@ -555,17 +714,6 @@ function DeleteMessageModal(props: { modalProps: any }) {
                                         }}
                                     />
                                 </div>
-
-                                {working && (
-                                    <Forms.FormText
-                                        style={{
-                                            color: "var(--text-muted)",
-                                            marginTop: 12,
-                                        }}
-                                    >
-                                        {progress}
-                                    </Forms.FormText>
-                                )}
                             </>
                         )}
 
@@ -591,21 +739,16 @@ function DeleteMessageModal(props: { modalProps: any }) {
                         look={Button.Looks.LINK}
                         color={Button.Colors.PRIMARY}
                         onClick={onClose}
-                        disabled={working}
                     >
                         Cancel
                     </Button>
                     <div style={{ flex: 1 }} />
                     <Button
                         color={Button.Colors.RED}
-                        disabled={
-                            loading || working || !count || parseInt(count) <= 0
-                        }
+                        disabled={loading || !count || parseInt(count) <= 0}
                         onClick={handleDelete}
                     >
-                        {working
-                            ? "Deleting..."
-                            : `Delete ${count || "0"} message${parseInt(count) === 1 ? "" : "s"}`}
+                        {`Delete ${count || "0"} message${parseInt(count) === 1 ? "" : "s"}`}
                     </Button>
                 </div>
             </ModalFooter>
@@ -644,7 +787,6 @@ function createButton(onClick: () => void): HTMLElement {
         "expression-picker-chat-input-button buttonContainer__74017";
     container.style.cursor = "pointer";
 
-    // Bigger icon (24x24 instead of 20x20) with hover color transition
     container.innerHTML = `
         <div class="button__74017 button__24af7 vermcord-delete-btn" aria-label="Delete Messages" role="button" tabindex="0">
             <div class="buttonWrapper__24af7">
@@ -655,7 +797,6 @@ function createButton(onClick: () => void): HTMLElement {
         </div>
     `;
 
-    // Add styles for smooth hover animation with higher specificity
     const styleId = "vermcord-delete-btn-styles";
     if (!document.getElementById(styleId)) {
         const style = document.createElement("style");
@@ -694,24 +835,20 @@ function createButton(onClick: () => void): HTMLElement {
 }
 
 function ensureInjected() {
-    // Check if button already exists and is properly mounted
     const existingButton = document.getElementById(
         "vermLib-message-deleter-button",
     );
     if (existingButton && existingButton.parentElement) {
-        // Button exists and is in the DOM, no need to re-inject
         return;
     }
 
     const buttonsContainer = document.querySelector("div.buttons__74017");
     if (!buttonsContainer) return;
 
-    // Only remove if it exists but is not mounted properly
     if (existingButton) {
         existingButton.remove();
     }
 
-    // Insert at the beginning (leftmost position)
     const firstChild = buttonsContainer.firstElementChild;
 
     const node = createButton(() => {

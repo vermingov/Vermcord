@@ -36,7 +36,7 @@ export const cl = classNameFactory("vc-plugins-");
 export const logger = new Logger("PluginSettings", "#a6d189");
 
 // Define custom plugin categories here
-const CUSTOM_PLUGIN_CATEGORIES = ["vermLib", "PlatformSpoofer"];
+const CUSTOM_PLUGIN_CATEGORIES = ["vermLib"];
 
 function ReloadRequiredCard({ required }: { required: boolean }) {
     return (

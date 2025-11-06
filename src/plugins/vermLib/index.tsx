@@ -10,6 +10,12 @@ import { definePluginSettings } from "@api/Settings";
 import definePlugin, { OptionType } from "@utils/types";
 import { React } from "@webpack/common";
 
+// Audio URLs
+const AUDIO_URLS = {
+    on: "https://cdn.discordapp.com/attachments/1287309916909867070/1435816283319828510/toggleon.mp3?ex=690d579e&is=690c061e&hm=9cfc4657bb83919b8f63b0cbb6624cf6ef2f25523df496f9f723fc8709f5c426",
+    off: "https://cdn.discordapp.com/attachments/1287309916909867070/1435816283030425631/toggleoff.mp3?ex=690d579e&is=690c061e&hm=ffc78525956915420a52c12ab192e66b56ef59b1cbe49a8f82f855cfcc26649b",
+};
+
 // Sub-plugins
 import FakeDeafen from "./plugins/fakeDeafen";
 import FollowUser from "./plugins/followUser";
@@ -183,6 +189,10 @@ const DEFAULTS: PrivateState = PLUGINS.reduce((acc, p) => {
     return acc;
 }, {} as PrivateState);
 
+// Add audio settings to defaults
+DEFAULTS.enableToggleSounds = true;
+DEFAULTS.toggleSoundVolume = 0.5;
+
 const subs: Record<string, SubPlugin> = PLUGINS.reduce(
     (acc, p) => {
         acc[p.key] = p.module;
@@ -198,6 +208,38 @@ const started: Record<string, boolean> = PLUGINS.reduce(
     },
     {} as Record<string, boolean>,
 );
+
+// Audio cache and playback functions
+const audioCache: Record<string, HTMLAudioElement> = {};
+
+function getAudioElement(type: "on" | "off"): HTMLAudioElement | null {
+    try {
+        if (!audioCache[type]) {
+            const audio = new Audio(AUDIO_URLS[type]);
+            audio.preload = "auto";
+            audioCache[type] = audio;
+        }
+        return audioCache[type];
+    } catch (err) {
+        console.error(`[vermLib] Failed to load audio for type: ${type}`, err);
+        return null;
+    }
+}
+
+function playToggleSound(type: "on" | "off", volume: number = 1) {
+    try {
+        const audio = getAudioElement(type);
+        if (audio) {
+            audio.volume = Math.max(0, Math.min(1, volume));
+            audio.currentTime = 0;
+            audio.play().catch((err) => {
+                console.warn("[vermLib] Failed to play toggle sound:", err);
+            });
+        }
+    } catch (err) {
+        console.warn("[vermLib] Error playing toggle sound:", err);
+    }
+}
 
 function safeStart(key: string) {
     if (started[key]) return;
@@ -240,139 +282,255 @@ function Dashboard() {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    animation: vl-fade-in .35s ease-out;
+    animation: vl-fade-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
 @keyframes vl-fade-in {
-    from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
+
 #vermLibDashboard .vl-hero {
     position: relative;
-    padding: 18px 16px;
+    padding: 24px;
     border-radius: 12px;
     overflow: hidden;
-    background: linear-gradient(120deg, color-mix(in oklab, var(--vl-card) 70%, var(--vl-accent) 30%), var(--vl-card));
+    background: var(--vl-card);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(88, 101, 242, 0.2);
+    backdrop-filter: blur(10px);
 }
-#vermLibDashboard .vl-hero::after {
+
+#vermLibDashboard .vl-hero::before {
     content: "";
-    position: absolute; inset: -40% -10% auto auto;
-    width: 65%; height: 220%;
-    background: radial-gradient(ellipse at center, color-mix(in oklab, var(--vl-accent) 40%, transparent 60%) 0%, transparent 60%);
+    position: absolute;
+    inset: -40% -10% auto auto;
+    width: 65%;
+    height: 220%;
+    background: radial-gradient(ellipse at center, color-mix(in oklab, var(--brand-500) 40%, transparent 60%) 0%, transparent 60%);
     filter: blur(28px);
     transform: rotate(8deg);
     animation: vl-aurora 9s ease-in-out infinite alternate;
+    pointer-events: none;
 }
+
 @keyframes vl-aurora {
-    0% { transform: rotate(8deg) translateX(0); opacity: .65; }
-    100% { transform: rotate(2deg) translateX(-6%); opacity: .9; }
+    0% {
+        transform: rotate(8deg) translateX(0);
+        opacity: 0.65;
+    }
+    100% {
+        transform: rotate(2deg) translateX(-6%);
+        opacity: 0.9;
+    }
 }
+
 #vermLibDashboard .vl-hero h2 {
-    display: flex; align-items: center; gap: 10px;
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     font-weight: 700;
+    font-size: 18px;
     color: var(--vl-fg);
-    margin: 0 0 6px 0;
+    margin: 0 0 8px 0;
 }
+
 #vermLibDashboard .vl-hero p {
-    margin: 0; color: var(--vl-fg-dim);
+    position: relative;
+    z-index: 1;
+    margin: 0;
+    color: var(--vl-fg-dim);
+    font-size: 13px;
 }
+
 #vermLibDashboard .vl-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 12px;
 }
+
 #vermLibDashboard .vl-card {
     background: var(--vl-card);
+    border: 1px solid rgba(255, 255, 255, 0.03);
     border-radius: 12px;
-    padding: 14px;
+    padding: 16px;
     position: relative;
     overflow: hidden;
-    transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
-    box-shadow: 0 0 0 1px rgba(255,255,255,.03) inset, 0 2px 10px rgba(0,0,0,.2);
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(10px);
 }
+
+#vermLibDashboard .vl-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(88, 101, 242, 0.3), transparent);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+
 #vermLibDashboard .vl-card:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 18px rgba(0,0,0,.28);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(88, 101, 242, 0.15);
+    border-color: rgba(88, 101, 242, 0.2);
 }
+
+#vermLibDashboard .vl-card:hover::before {
+    opacity: 1;
+}
+
 #vermLibDashboard .vl-card h3 {
-    margin: 0 0 6px 0; font-weight: 600; color: var(--vl-fg);
-}
-#vermLibDashboard .vl-desc {
-    font-size: 12.75px; color: var(--vl-fg-dim);
-    line-height: 1.35; margin-bottom: 10px;
-}
-#vermLibDashboard .vl-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-}
-#vermLibDashboard .vl-left {
-    display: flex; align-items: center; gap: 8px;
-}
-#vermLibDashboard .vl-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--vl-bad);
-    box-shadow: 0 0 0 1px rgba(0,0,0,.45) inset, 0 0 10px rgba(0,0,0,.2);
-    transition: background .2s ease, transform .2s ease;
-}
-#vermLibDashboard .vl-dot.on { background: var(--vl-ok); }
-#vermLibDashboard .vl-tag {
-    font-size: 11.5px; padding: 2px 8px; border-radius: 999px;
-    background: color-mix(in oklab, var(--vl-accent) 25%, transparent 75%);
+    margin: 0 0 6px 0;
+    font-weight: 600;
+    font-size: 14px;
     color: var(--vl-fg);
 }
-#vermLibDashboard .vl-switch {
-    --w: 48px; --h: 24px;
-    width: var(--w); height: var(--h);
-    background: var(--background-modifier-accent);
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 999px; position: relative; cursor: pointer;
-    transition: background .2s ease, border-color .2s ease, box-shadow .2s ease;
+
+#vermLibDashboard .vl-desc {
+    font-size: 12.75px;
+    color: var(--vl-fg-dim);
+    line-height: 1.4;
+    margin-bottom: 12px;
 }
+
+#vermLibDashboard .vl-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+#vermLibDashboard .vl-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#vermLibDashboard .vl-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--vl-bad);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45) inset, 0 0 8px rgba(237, 66, 69, 0.3);
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    flex-shrink: 0;
+}
+
+#vermLibDashboard .vl-dot.on {
+    background: var(--vl-ok);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45) inset, 0 0 12px rgba(87, 242, 135, 0.5);
+    transform: scale(1.1);
+}
+
+#vermLibDashboard .vl-tag {
+    font-size: 11.5px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--brand-500) 15%, transparent 85%);
+    color: var(--vl-fg);
+    border: 1px solid rgba(88, 101, 242, 0.3);
+    font-weight: 500;
+}
+
+#vermLibDashboard .vl-switch {
+    --w: 48px;
+    --h: 24px;
+    width: var(--w);
+    height: var(--h);
+    background: var(--background-modifier-accent);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    flex-shrink: 0;
+}
+
+#vermLibDashboard .vl-switch:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
 #vermLibDashboard .vl-switch.on {
     background: var(--brand-500);
     border-color: var(--brand-560, var(--brand-500));
-    box-shadow: 0 0 0 2px rgba(255,255,255,.06) inset, 0 0 8px var(--brand-500, #5865F2);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.06) inset, 0 0 12px rgba(88, 101, 242, 0.6);
 }
+
 #vermLibDashboard .vl-knob {
-    position: absolute; top: 2px; left: 2px;
-    width: calc(var(--h) - 4px); height: calc(var(--h) - 4px);
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: calc(var(--h) - 4px);
+    height: calc(var(--h) - 4px);
     background: #ffffff;
     border-radius: 50%;
-    box-shadow: 0 1px 2px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.35) inset;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.35) inset;
     transform: translateX(0);
-    transition: transform .2s ease, background .2s ease, box-shadow .2s ease;
+    transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
     z-index: 1;
     will-change: transform;
 }
+
 #vermLibDashboard .vl-switch.on .vl-knob {
     transform: translateX(calc(var(--w) - var(--h)));
     background: #ffffff;
-    box-shadow: 0 1px 2px rgba(0,0,0,.45), 0 0 0 1px var(--brand-600, #4752C4) inset, 0 0 6px var(--brand-500, #5865F2);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--brand-600, #4752C4) inset, 0 0 8px var(--brand-500, #5865F2);
 }
+
 #vermLibDashboard .vl-section-title {
     font-size: 14px;
     font-weight: 700;
     color: var(--header-primary);
-    letter-spacing: .2px;
-    margin: 2px 2px 6px 2px;
+    letter-spacing: 0.5px;
+    margin: 8px 2px 8px 2px;
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    text-transform: uppercase;
 }
+
 #vermLibDashboard .vl-section-title::before {
     content: "";
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: var(--brand-500);
-    box-shadow: 0 0 10px var(--brand-500);
+    box-shadow: 0 0 12px var(--brand-500);
+    animation: vl-pulse 2s ease-in-out infinite;
 }
+
+@keyframes vl-pulse {
+    0%, 100% {
+        box-shadow: 0 0 12px var(--brand-500);
+    }
+    50% {
+        box-shadow: 0 0 20px var(--brand-500);
+    }
+}
+
 #vermLibDashboard .vl-divider {
     height: 1px;
-    background: rgba(255,255,255,.10);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
     border-radius: 999px;
-    margin: 4px 0 10px 0;
+    margin: 8px 0 12px 0;
 }
+
 #vermLibDashboard .vl-note {
-    font-size: 12px; color: var(--vl-fg-dim); margin-top: 8px;
+    font-size: 12px;
+    color: var(--vl-fg-dim);
+    margin-top: 8px;
 }
 `;
         document.head.appendChild(style);
@@ -398,7 +556,10 @@ function Dashboard() {
         // Auto start/stop based on enable flag
         const plugin = PLUGINS.find((p) => `enable${p.key}` === key);
         if (plugin) {
-            (value as boolean) ? safeStart(plugin.key) : safeStop(plugin.key);
+            const enabled = value as boolean;
+            // Always play sound (no toggle check)
+            playToggleSound(enabled ? "on" : "off", 0.5);
+            enabled ? safeStart(plugin.key) : safeStop(plugin.key);
         }
 
         // Handle special settings
@@ -591,6 +752,7 @@ function Dashboard() {
                 </h2>
                 <p>Manage all Verm's plugins in one place.</p>
             </div>
+
             {renderSection("voice")}
             {renderSection("qol")}
             {renderSection("social")}

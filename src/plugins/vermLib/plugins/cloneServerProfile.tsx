@@ -2,6 +2,7 @@
  * Vencord, a Discord client mod
  * Fixed version — proper guildId detection, safer fallbacks, improved logging
  * Updated: bio and server-specific avatar, banner cloning
+ * Modified: Uses custom progress toast for cloning feedback
  */
 
 import { NavContextMenuPatchCallback } from "@api/ContextMenu";
@@ -37,6 +38,98 @@ type FetchedProfile = {
     user?: any;
     guild_member?: GuildMemberProfile;
 };
+
+function createDeletionProgressToast(): HTMLElement {
+    const container = document.createElement("div");
+    container.id = "md-deletion-progress";
+    container.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--background-secondary);
+        border: 1px solid var(--background-modifier-accent);
+        border-radius: 12px;
+        padding: 16px 24px;
+        min-width: 360px;
+        max-width: 500px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        z-index: 10000;
+        backdrop-filter: blur(10px);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif;
+        transition: opacity 0.3s ease, transform 0.3s ease;
+    `;
+
+    container.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <svg class="md-spinner" width="20" height="20" viewBox="0 0 24 24" fill="none" style="animation: md-spin 1s linear infinite;">
+                    <circle cx="12" cy="12" r="10" stroke="var(--brand-500)" stroke-width="2" stroke-dasharray="15.7 31.4" />
+                </svg>
+                <span style="color: var(--header-primary); font-weight: 500; font-size: 14px;">
+                    Cloning Server Profile
+                </span>
+            </div>
+            <span style="color: var(--text-muted); font-size: 12px; font-weight: 500;">
+                <span id="md-progress-text">0/4</span>
+            </span>
+        </div>
+        <div style="
+            width: 100%;
+            height: 4px;
+            background: var(--background-tertiary);
+            border-radius: 2px;
+            overflow: hidden;
+        ">
+            <div id="md-progress-bar" style="
+                height: 100%;
+                background: linear-gradient(90deg, var(--brand-500, #5865F2), var(--brand-560, #4752C4));
+                border-radius: 2px;
+                width: 0%;
+                transition: width 0.2s ease;
+                box-shadow: 0 0 12px rgba(88, 101, 242, 0.6);
+            "></div>
+        </div>
+    `;
+
+    // Add spinning animation
+    if (!document.getElementById("md-spinner-styles")) {
+        const style = document.createElement("style");
+        style.id = "md-spinner-styles";
+        style.textContent = `
+            @keyframes md-spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    return container;
+}
+
+function updateProgressToast(current: number, total: number = 4) {
+    const progressText = document.getElementById("md-progress-text");
+    const progressBar = document.getElementById("md-progress-bar");
+
+    if (progressText) {
+        progressText.textContent = `${current}/${total}`;
+    }
+
+    if (progressBar) {
+        const percentage = (current / total) * 100;
+        progressBar.style.width = `${percentage}%`;
+    }
+}
+
+function removeProgressToast() {
+    const container = document.getElementById("md-deletion-progress");
+    if (container) {
+        container.style.opacity = "0";
+        container.style.transform = "translateX(-50%) translateY(-10px)";
+        setTimeout(() => container.remove(), 300);
+    }
+}
 
 function extFromHash(hash?: string | null) {
     if (!hash) return "png";
@@ -282,7 +375,11 @@ const userContextPatch: NavContextMenuPatchCallback = (
 
                 if (me && user.id === me.id) return;
 
-                showToast("Cloning server profile...", Toasts.Type.MESSAGE);
+                // Create and append progress toast
+                const progressToast = createDeletionProgressToast();
+                document.body.appendChild(progressToast);
+                updateProgressToast(0, 4);
+
                 console.log("[CloneServerProfile] Begin cloning", {
                     targetUserId: user.id,
                     username: user.username,
@@ -301,6 +398,8 @@ const userContextPatch: NavContextMenuPatchCallback = (
                         user.id,
                         effectiveGuildId,
                     );
+                    updateProgressToast(1, 4);
+
                     const targetUser: any = target?.user ?? {};
 
                     // Extract all profile fields
@@ -340,6 +439,7 @@ const userContextPatch: NavContextMenuPatchCallback = (
                             );
                         }
                     }
+                    updateProgressToast(2, 4);
 
                     // 3️⃣ Clone server-specific avatar and banner
                     let avatarDataUrl: string | undefined = undefined;
@@ -413,6 +513,7 @@ const userContextPatch: NavContextMenuPatchCallback = (
                             );
                         }
                     }
+                    updateProgressToast(3, 4);
 
                     // 4️⃣ Clone bio (global profile)
                     if (targetBio != null) {
@@ -437,6 +538,10 @@ const userContextPatch: NavContextMenuPatchCallback = (
                             );
                         }
                     }
+                    updateProgressToast(4, 4);
+
+                    // Remove progress toast
+                    removeProgressToast();
 
                     // 5️⃣ Result summary
                     const parts: string[] = [];
@@ -467,6 +572,7 @@ const userContextPatch: NavContextMenuPatchCallback = (
                         );
                     }
                 } catch (err) {
+                    removeProgressToast();
                     showToast(
                         "Failed to clone server profile.",
                         Toasts.Type.FAILURE,
