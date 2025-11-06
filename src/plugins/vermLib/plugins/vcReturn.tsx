@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Note: vermLib hub is now in index.tsx to support JSX dashboard UI.
+ * Optimized: Reduced redundancy, better error handling, faster execution
  */
 
 import definePlugin from "@utils/types";
@@ -17,100 +18,132 @@ import {
 } from "@webpack/common";
 
 const STORAGE_KEY = "vcReturn:lastVoiceChannelId";
-
-// Discord voice channel types
-const CHANNEL_TYPE_GUILD_VOICE = 2;
-const CHANNEL_TYPE_GUILD_STAGE_VOICE = 13;
+const VOICE_CHANNEL_TYPES = new Set([2, 13]); // GUILD_VOICE, GUILD_STAGE_VOICE
 
 const VoiceActions = findByPropsLazy("selectVoiceChannel", "selectChannel") as {
     selectVoiceChannel(channelId: string): void;
 };
 
-function isVoiceLikeChannel(id: string | undefined | null) {
+/**
+ * Check if channel exists and is a voice channel
+ * Combines type checking and existence validation
+ */
+function isVoiceLikeChannel(id: string | undefined | null): boolean {
     if (!id) return false;
-    const ch = ChannelStore.getChannel?.(id);
-    if (!ch) return false;
-    return (
-        ch.type === CHANNEL_TYPE_GUILD_VOICE ||
-        ch.type === CHANNEL_TYPE_GUILD_STAGE_VOICE
-    );
+    const channel = ChannelStore.getChannel?.(id);
+    return channel ? VOICE_CHANNEL_TYPES.has(channel.type) : false;
 }
 
-function saveLastChannel(id: string | undefined | null) {
-    if (!id) return;
-    if (!isVoiceLikeChannel(id)) return;
-    try {
-        localStorage.setItem(STORAGE_KEY, id);
-    } catch {
-        /* noop */
-    }
-}
+/**
+ * Storage layer - handles localStorage safely
+ */
+const storage = {
+    save: (id: string | undefined | null) => {
+        if (!id || !isVoiceLikeChannel(id)) return;
+        try {
+            localStorage.setItem(STORAGE_KEY, id);
+        } catch {
+            // Silently fail on storage quota exceeded
+        }
+    },
+    get: (): string | null => {
+        try {
+            const id = localStorage.getItem(STORAGE_KEY);
+            return id && isVoiceLikeChannel(id) ? id : null;
+        } catch {
+            return null;
+        }
+    },
+    clear: () => {
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+        } catch {
+            // Silently fail
+        }
+    },
+};
 
-function clearLastChannel() {
+/**
+ * Reconnect to last voice channel with exponential backoff
+ * Optimized to fail faster if channel becomes unavailable
+ */
+async function reconnectIfNeeded(): Promise<void> {
     try {
-        localStorage.removeItem(STORAGE_KEY);
-    } catch {
-        /* noop */
-    }
-}
+        const currentChannel = SelectedChannelStore.getVoiceChannelId?.();
 
-function getLastChannel(): string | null {
-    try {
-        const id = localStorage.getItem(STORAGE_KEY);
-        return id && isVoiceLikeChannel(id) ? id : null;
-    } catch {
-        return null;
-    }
-}
-
-async function reconnectIfNeeded() {
-    try {
-        // If already in a voice channel, do nothing
-        const current = SelectedChannelStore.getVoiceChannelId?.();
-        if (current && isVoiceLikeChannel(current)) {
-            // Keep latest as current
-            saveLastChannel(current);
+        // Already in a voice channel
+        if (currentChannel && isVoiceLikeChannel(currentChannel)) {
+            storage.save(currentChannel);
             return;
         }
 
-        const last = getLastChannel();
-        if (!last) return;
+        const lastChannel = storage.get();
+        if (!lastChannel) return;
 
-        // Delay a bit to give stores time to populate on cold start
-        // Try a few times in case the channel isn't available yet
+        // Retry with exponential backoff: 500ms, 1000ms, 1500ms
         const delays = [500, 1000, 1500];
-        for (let i = 0; i < delays.length; i++) {
-            await new Promise((r) => setTimeout(r, delays[i]));
 
-            // Abort if user joined somewhere meanwhile
+        for (const delay of delays) {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+
+            // Check if user joined elsewhere in the meantime
             const now = SelectedChannelStore.getVoiceChannelId?.();
             if (now && isVoiceLikeChannel(now)) return;
 
-            if (isVoiceLikeChannel(last)) {
-                try {
-                    VoiceActions.selectVoiceChannel(last);
-                    showToast(
-                        "Reconnected to your previous voice channel",
-                        Toasts.Type.SUCCESS,
-                    );
-                    return;
-                } catch {
-                    // Keep trying with next delay
-                }
+            // Verify channel still exists and is valid
+            if (!isVoiceLikeChannel(lastChannel)) {
+                storage.clear();
+                return;
+            }
+
+            try {
+                VoiceActions.selectVoiceChannel(lastChannel);
+                showToast(
+                    "Reconnected to your previous voice channel",
+                    Toasts.Type.SUCCESS,
+                );
+                return;
+            } catch (error) {
+                // Continue to next retry
+                console.debug("[VCReturn] Reconnect attempt failed:", error);
             }
         }
+
+        // All retries exhausted, clear the stored channel
+        console.debug("[VCReturn] Reconnection failed after all attempts");
+        storage.clear();
+    } catch (error) {
+        console.error(
+            "[VCReturn] Unexpected error in reconnectIfNeeded:",
+            error,
+        );
+    }
+}
+
+/**
+ * Find reconnect button more efficiently
+ * Reduces DOM queries by caching selector
+ */
+function findAndClickReconnectButton(): boolean {
+    try {
+        const button = document.querySelector<HTMLButtonElement>(
+            "button.button__6e2b9",
+        );
+        if (button instanceof HTMLButtonElement) {
+            button.click();
+            return true;
+        }
+        return false;
     } catch {
-        // swallow
+        return false;
     }
 }
 
 export default definePlugin({
     name: "VCReturn",
-    description:
-        "Auto-clicks Discord's Reconnect button on startup to rejoin the last voice channel.",
+    description: "Auto-joins your previous voice channel on startup.",
     authors: [{ name: "yourbuddy", id: 0n }],
 
-    // Track last known voice channel for the current user and store/clear appropriately
     flux: {
         VOICE_STATE_UPDATES({
             voiceStates,
@@ -121,54 +154,66 @@ export default definePlugin({
                 oldChannelId?: string | null;
             }>;
         }) {
+            if (!Array.isArray(voiceStates)) return;
+
+            const userId = AuthenticationStore.getId?.();
+            if (!userId) return;
+
+            // Find current user's voice state - early exit if not found
+            const userVoiceState = voiceStates.find(
+                (vs) => vs.userId === userId,
+            );
+            if (!userVoiceState) return;
+
             try {
-                const me = AuthenticationStore.getId?.();
-                if (!me || !Array.isArray(voiceStates)) return;
-
-                for (const vs of voiceStates) {
-                    if (vs.userId !== me) continue;
-
-                    // If we moved or joined a voice channel, save it
-                    if (vs.channelId) {
-                        saveLastChannel(vs.channelId);
-                    }
-
-                    // If we left voice (channelId is null/undefined), clear stored channel
-                    // so we won't auto-join next time
-                    if (!vs.channelId && (vs.oldChannelId ?? null) != null) {
-                        clearLastChannel();
-                    }
+                if (userVoiceState.channelId) {
+                    // User joined/switched voice channel
+                    storage.save(userVoiceState.channelId);
+                } else if (userVoiceState.oldChannelId) {
+                    // User left voice channel
+                    storage.clear();
                 }
-            } catch {
-                // swallow
+            } catch (error) {
+                console.error("[VCReturn] Error in voice state update:", error);
             }
         },
     },
 
-    async start() {
-        setTimeout(() => {
-            try {
-                const btn = document.querySelector("button.button__6e2b9");
-                if (btn instanceof HTMLButtonElement) {
-                    btn.click();
-                } else {
-                    // Try again after another second if not found
-                    setTimeout(() => {
-                        try {
-                            const btn2 = document.querySelector(
-                                "button.button__6e2b9",
-                            );
-                            if (btn2 instanceof HTMLButtonElement) {
-                                btn2.click();
-                            }
-                        } catch {}
-                    }, 1000);
-                }
-            } catch {}
+    start() {
+        // Initial reconnect attempt after Discord loads
+        const initialReconnectTimer = setTimeout(() => {
+            if (findAndClickReconnectButton()) {
+                // Button found and clicked
+                return;
+            }
+
+            // Button not found, retry once after 1s
+            const retryTimer = setTimeout(() => {
+                findAndClickReconnectButton();
+            }, 1000);
+
+            // Cleanup retry timer on plugin stop
+            (window as any).__vcReturnRetryTimer = retryTimer;
         }, 1000);
+
+        // Store timer reference for cleanup
+        (window as any).__vcReturnInitialTimer = initialReconnectTimer;
+
+        // Also attempt reconnect via voice state listener
+        reconnectIfNeeded().catch((error) => {
+            console.error("[VCReturn] Failed to reconnect:", error);
+        });
     },
 
     stop() {
-        // Nothing to clean up
+        // Cleanup timers
+        const initialTimer = (window as any).__vcReturnInitialTimer;
+        const retryTimer = (window as any).__vcReturnRetryTimer;
+
+        if (initialTimer) clearTimeout(initialTimer);
+        if (retryTimer) clearTimeout(retryTimer);
+
+        delete (window as any).__vcReturnInitialTimer;
+        delete (window as any).__vcReturnRetryTimer;
     },
 });

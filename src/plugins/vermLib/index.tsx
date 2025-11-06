@@ -21,6 +21,7 @@ import CloneServerProfile from "./plugins/cloneServerProfile";
 import RandomVCJoiner from "./plugins/randomVCJoiner";
 import RobloxLookup from "./plugins/robloxLookup";
 import VermcordUserCounter from "./plugins/vermcordUserCounter";
+import MessageDeleter from "./plugins/messageDeleter";
 
 // Credits
 import { Devs } from "../../utils/constants";
@@ -63,8 +64,7 @@ const PLUGINS: PluginConfig[] = [
         key: "rawMic",
         name: "Raw Mic",
         module: RawMic as unknown as SubPlugin,
-        description:
-            "Force raw WebRTC mic: disable echoCancellation, noiseSuppression, autoGainControl on VC join.",
+        description: "Completely disables all microphone post-processing.",
         tag: "Voice",
         section: "voice",
     },
@@ -72,8 +72,7 @@ const PLUGINS: PluginConfig[] = [
         key: "goxlr",
         name: "GoXLR Mic Color",
         module: GoXLRCensorIndicator as unknown as SubPlugin,
-        description:
-            "Show live green (Bleep) / red (Cough) indicator on the mic button via GoXLR Utility.",
+        description: "GoXLR Indicators [LINUX ONLY]",
         tag: "Voice",
         section: "voice",
     },
@@ -157,11 +156,19 @@ const PLUGINS: PluginConfig[] = [
         key: "vermcordUserCounter",
         name: "Vermcord User Counter",
         module: VermcordUserCounter as unknown as SubPlugin,
-        description:
-            "Shows the number of online Vermcord users in the top bar and updates every minute.",
+        description: "Shows the number of online Vermcord users.",
         tag: "QoL",
         section: "qol",
         required: true,
+    },
+    {
+        key: "messageDeleter",
+        name: "Message Deleter",
+        module: MessageDeleter as unknown as SubPlugin,
+        description:
+            "Adds a button to quickly delete your messages in the current channel with random delays.",
+        tag: "QoL",
+        section: "qol",
     },
 ];
 
@@ -727,6 +734,18 @@ export default definePlugin({
         PLUGINS.forEach((p) => {
             if (S[`enable${p.key}`]) safeStart(p.key);
         });
+
+        // ===== NEW: Export plugin data to window for Performance Monitor =====
+        (window as any).__VERMLIB_DATA__ = {
+            PLUGINS,
+            subs,
+            started,
+            safeStart,
+            safeStop,
+        };
+
+        console.log("[vermLib] Exported plugin data for Performance Monitor");
+        // =====================================================================
     },
 
     stop() {
@@ -737,5 +756,8 @@ export default definePlugin({
         try {
             clearInterval((window as any).__vermLibUpdateTimer);
         } catch {}
+
+        // Clean up exported data
+        delete (window as any).__VERMLIB_DATA__;
     },
 });
