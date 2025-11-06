@@ -1,19 +1,9 @@
-/**
+/*
  * Vencord, a Discord client mod
  * Copyright (c) 2025 Vendicated and contributors
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { Divider } from "@components/Divider";
-import {
-    ModalCloseButton,
-    ModalContent,
-    ModalFooter,
-    ModalHeader,
-    ModalRoot,
-    ModalSize,
-    openModal,
-} from "@utils/modal";
 import { findByPropsLazy } from "@webpack";
 import {
     Alerts,
@@ -33,6 +23,15 @@ const SelectedChannelStore = findByPropsLazy(
     "getVoiceChannelId",
 );
 const ChannelStore = findByPropsLazy("getChannel", "getDMFromUserId");
+
+const BUTTON_CLICK_SOUND =
+    "https://cdn.discordapp.com/attachments/1287309916909867070/1435824882280698006/ButtonClick.mp3?ex=690d5fa0&is=690c0e20&hm=fff0e8251321ee626e59ba33ff948816781028ef41f008feee131f764bef5fe4&";
+
+function playButtonSound() {
+    const audio = new Audio(BUTTON_CLICK_SOUND);
+    audio.volume = 0.3;
+    audio.play().catch(() => {});
+}
 
 interface Channel {
     id: string;
@@ -166,7 +165,6 @@ async function loadAllMessages(
     return result;
 }
 
-// Global deletion progress element
 let deletionProgressElement: HTMLElement | null = null;
 
 function createDeletionProgressToast(): HTMLElement {
@@ -222,7 +220,6 @@ function createDeletionProgressToast(): HTMLElement {
         </div>
     `;
 
-    // Add spinning animation
     if (!document.getElementById("md-spinner-styles")) {
         const style = document.createElement("style");
         style.id = "md-spinner-styles";
@@ -280,7 +277,6 @@ async function deleteMessagesWithDelay(
     let deleted = 0;
     const total = messageIds.length;
 
-    // FAST: 200-400ms per message
     const minDelay = 200;
     const maxDelay = 400;
 
@@ -333,7 +329,6 @@ async function deleteMessagesWithDelay(
                     continue;
                 }
 
-                // 429 = rate limited - WAIT 5 SECONDS
                 if (errorCode === 429) {
                     console.warn(
                         `[MessageDeleter] Rate limited! Waiting 5s...`,
@@ -371,14 +366,218 @@ async function deleteMessagesWithDelay(
     return deleted;
 }
 
-function DeleteMessageModal(props: { modalProps: any }) {
-    const { onClose } = props.modalProps;
-    const FIXED_MODAL_WIDTH = "min(520px, calc(100vw - 64px))";
+function showCustomModal(title: string, body: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        const overlay = document.createElement("div");
+        overlay.id = `custom-modal-overlay-${Date.now()}`;
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+            z-index: 9998;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: md-fade-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+        `;
 
-    const [count, setCount] = React.useState("10");
-    const [loading, setLoading] = React.useState(true);
-    const [userMessageIds, setUserMessageIds] = React.useState<string[]>([]);
-    const [loadingProgress, setLoadingProgress] = React.useState(0);
+        const modal = document.createElement("div");
+        modal.style.cssText = `
+            background: color-mix(in oklab, var(--background-secondary) 90%, black 10%);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(10px);
+            padding: 24px;
+            min-width: 400px;
+            max-width: 500px;
+            gap: 16px;
+            display: flex;
+            flex-direction: column;
+        `;
+
+        const titleEl = document.createElement("div");
+        titleEl.style.cssText = `
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--header-primary);
+            letter-spacing: 0.5px;
+        `;
+        titleEl.textContent = title;
+        modal.appendChild(titleEl);
+
+        const bodyEl = document.createElement("div");
+        bodyEl.style.cssText = `
+            font-size: 14px;
+            color: white;
+            line-height: 1.5;
+        `;
+        bodyEl.textContent = body;
+        modal.appendChild(bodyEl);
+
+        const buttonContainer = document.createElement("div");
+        buttonContainer.style.cssText = `
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 16px;
+        `;
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.style.cssText = `
+            background: transparent;
+            border: none;
+            color: var(--header-primary);
+            cursor: pointer;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        `;
+        cancelBtn.addEventListener("click", () => {
+            playButtonSound();
+            closeModal();
+            resolve(false);
+        });
+        cancelBtn.addEventListener("mouseenter", () => {
+            cancelBtn.style.color = "var(--text-muted)";
+        });
+        cancelBtn.addEventListener("mouseleave", () => {
+            cancelBtn.style.color = "var(--header-primary)";
+        });
+        buttonContainer.appendChild(cancelBtn);
+
+        const confirmBtn = document.createElement("button");
+        confirmBtn.textContent = "Delete";
+        confirmBtn.style.cssText = `
+            background: #ED4245;
+            border: 1px solid rgba(237, 66, 69, 0.5);
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            box-shadow: 0 0 12px rgba(237, 66, 69, 0.4);
+        `;
+        confirmBtn.addEventListener("click", () => {
+            playButtonSound();
+            closeModal();
+            resolve(true);
+        });
+        confirmBtn.addEventListener("mouseenter", () => {
+            confirmBtn.style.transform = "translateY(-2px)";
+            confirmBtn.style.boxShadow = "0 4px 16px rgba(237, 66, 69, 0.6)";
+        });
+        confirmBtn.addEventListener("mouseleave", () => {
+            confirmBtn.style.transform = "translateY(0)";
+            confirmBtn.style.boxShadow = "0 0 12px rgba(237, 66, 69, 0.4)";
+        });
+        buttonContainer.appendChild(confirmBtn);
+
+        modal.appendChild(buttonContainer);
+        overlay.appendChild(modal);
+
+        function closeModal() {
+            overlay.style.animation =
+                "md-fade-out 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards";
+            setTimeout(() => overlay.remove(), 250);
+        }
+
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) {
+                playButtonSound();
+                closeModal();
+                resolve(false);
+            }
+        });
+
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                playButtonSound();
+                document.removeEventListener("keydown", handleEscape);
+                closeModal();
+                resolve(false);
+            }
+        };
+        document.addEventListener("keydown", handleEscape);
+
+        if (!document.getElementById("md-modal-styles")) {
+            const style = document.createElement("style");
+            style.id = "md-modal-styles";
+            style.textContent = `
+                @keyframes md-fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+                @keyframes md-fade-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(8px); } }
+                @keyframes md-icon-pulse {
+                    0%, 100% {
+                        transform: scale(1);
+                        opacity: 1;
+                    }
+                    50% {
+                        transform: scale(1.1);
+                        opacity: 0.8;
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        document.body.appendChild(overlay);
+    });
+}
+
+function createDeleteMessageModal() {
+    const container = document.createElement("div");
+    container.id = "vermLib-md-modal-container";
+    container.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, var(--background-primary) 0%, var(--background-secondary) 100%);
+        backdrop-filter: blur(10px);
+        z-index: 9997;
+        animation: md-fade-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+
+    const modal = document.createElement("div");
+    modal.style.cssText = `
+        width: min(520px, calc(100vw - 64px));
+        max-height: calc(100vh - 64px);
+        background: color-mix(in oklab, var(--background-secondary) 90%, black 10%);
+        border: 1px solid rgba(255, 255, 255, 0.03);
+        border-radius: 16px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(10px);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding: 24px;
+        gap: 16px;
+    `;
+
+    container.appendChild(modal);
+    document.body.appendChild(container);
+
+    return { container, modal, close: () => container.remove() };
+}
+
+let currentModalInstance: { container: HTMLElement; close: () => void } | null =
+    null;
+
+function openDeleteMessageModal() {
+    const { container, modal, close } = createDeleteMessageModal();
+    currentModalInstance = { container, close };
 
     const channelId = SelectedChannelStore.getChannelId();
     const channel = channelId
@@ -388,117 +587,151 @@ function DeleteMessageModal(props: { modalProps: any }) {
     const currentUserId = UserStore.getCurrentUser()?.id;
     const isGuildChannel = channel?.guild_id ? true : false;
 
-    React.useEffect(() => {
-        if (!channelId || !currentUserId) {
-            setLoading(false);
-            return;
+    let userMessageIds: string[] = [];
+    let loading = true;
+    let loadingProgress = 0;
+    let count = "10";
+
+    function renderModal() {
+        modal.innerHTML = `
+            <div style="font-size: 20px; font-weight: 600; color: var(--header-primary); letter-spacing: 0.5px;">
+                Delete Messages
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 16px; flex: 1; overflow-y: auto;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style="animation: md-icon-pulse 2s ease-in-out infinite; flex-shrink: 0;">
+                        <path d="M3 3h2v2H3V3zm0 4h2v2H3V7zm0 4h2v2H3v-2zm0 4h2v2H3v-2zm0 4h2v2H3v-2zm4-16h2v2H7V3zm0 4h2v2H7V7zm0 4h2v2H7v-2zm0 4h2v2H7v-2zm0 4h2v2H7v-2zm4-16h2v2h-2V3zm0 4h2v2h-2V7zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2zm4-16h2v2h-2V3zm0 4h2v2h-2V7zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2zm4-16h2v2h-2V3zm0 4h2v2h-2V7zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2z" fill="var(--brand-500)" opacity="0.8"/>
+                        <circle cx="12" cy="12" r="3" fill="var(--brand-500)" />
+                    </svg>
+                    <div>
+                        <div style="color: white; font-size: 14px; font-weight: 500;">
+                            Delete from <strong>${channelName}</strong>
+                        </div>
+                        <div style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+                            Messages will be permanently removed
+                        </div>
+                    </div>
+                </div>
+
+                ${
+                    loading
+                        ? `
+                    <div style="text-align: center; padding: 20px 0;">
+                        <div style="width: 100%; height: 6px; background: var(--background-tertiary); border-radius: 3px; overflow: hidden; margin: 8px 0;">
+                            <div id="md-load-bar" style="
+                                height: 100%;
+                                background: linear-gradient(90deg, var(--brand-500, #5865F2), var(--brand-560, #4752C4));
+                                border-radius: 3px;
+                                transition: width 0.3s ease;
+                                box-shadow: 0 0 8px rgba(88, 101, 242, 0.6);
+                                width: ${loadingProgress}%;
+                            "></div>
+                        </div>
+                        <div style="color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 12px;">
+                            Loading messages...
+                        </div>
+                    </div>
+                `
+                        : `
+                    <div style="background: var(--background-tertiary); border: 1px solid var(--background-modifier-accent); border-radius: 8px; padding: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <div>
+                            <div style="color: var(--text-muted); font-size: 12px; margin-bottom: 4px;">
+                                Your messages loaded${isGuildChannel ? " (up to 1,000 checked)" : ""}
+                            </div>
+                            <div style="color: var(--header-primary); font-size: 20px; font-weight: 600;">
+                                ${userMessageIds.length.toLocaleString()}
+                            </div>
+                        </div>
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                            <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" fill="var(--text-muted)" opacity="0.3" />
+                        </svg>
+                    </div>
+
+                    <div>
+                        <div style="color: var(--header-primary); font-size: 14px; font-weight: 500; margin-bottom: 8px;">
+                            Number of Messages to Delete
+                        </div>
+                        <input id="md-count-input" type="number" value="${count}" placeholder="Enter number of messages" min="1" max="${userMessageIds.length}" style="
+                            width: 100%;
+                            background: var(--background-tertiary);
+                            color: var(--header-primary);
+                            border: 1px solid var(--background-modifier-accent);
+                            border-radius: 8px;
+                            outline: none;
+                            padding: 8px 10px;
+                            box-sizing: border-box;
+                            transition: all 0.2s ease;
+                            font-size: 14px;
+                        " />
+                    </div>
+                `
+                }
+
+                <div style="color: var(--text-danger); font-size: 12px; padding: 8px 0;">
+                    Warning: Deleted messages cannot be recovered.
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                <button id="md-cancel-btn" style="background: transparent; border: none; color: var(--header-primary); cursor: pointer; padding: 6px 12px; font-size: 14px; font-weight: 500;">
+                    Cancel
+                </button>
+                <button id="md-delete-btn" style="background: #ED4245; border: 1px solid rgba(237, 66, 69, 0.5); border-radius: 8px; color: white; padding: 6px 12px; cursor: pointer; transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); font-size: 14px; font-weight: 500; box-shadow: 0 0 12px rgba(237, 66, 69, 0.4);" ${loading ? "disabled" : ""}>
+                    Delete ${count} message${parseInt(count) === 1 ? "" : "s"}
+                </button>
+            </div>
+        `;
+
+        const cancelBtn = modal.querySelector(
+            "#md-cancel-btn",
+        ) as HTMLButtonElement;
+        const deleteBtn = modal.querySelector(
+            "#md-delete-btn",
+        ) as HTMLButtonElement;
+        const countInput = modal.querySelector(
+            "#md-count-input",
+        ) as HTMLInputElement;
+
+        if (cancelBtn) {
+            cancelBtn.addEventListener("click", () => {
+                playButtonSound();
+                close();
+            });
+            cancelBtn.addEventListener("mouseenter", () => {
+                cancelBtn.style.color = "var(--text-muted)";
+            });
+            cancelBtn.addEventListener("mouseleave", () => {
+                cancelBtn.style.color = "var(--header-primary)";
+            });
         }
 
-        setLoading(true);
-        setLoadingProgress(0);
-
-        const maxBatches = isGuildChannel ? 10 : 50;
-
-        loadAllMessages(
-            channelId,
-            currentUserId,
-            maxBatches,
-            (batchCount, totalBatches) => {
-                const progressPercent = (batchCount / totalBatches) * 100;
-                setLoadingProgress(progressPercent);
-            },
-        )
-            .then((messageIds) => {
-                setUserMessageIds(messageIds);
-                setLoading(false);
-                setLoadingProgress(100);
-                console.log(
-                    `[MessageDeleter] Ready with ${messageIds.length} messages`,
-                );
-            })
-            .catch((error) => {
-                console.error(
-                    "[MessageDeleter] Failed to load messages:",
-                    error,
-                );
-                setLoading(false);
-                Toasts.show({
-                    message:
-                        "Failed to load messages. Using cached messages only.",
-                    type: Toasts.Type.FAILURE,
-                    id: Toasts.genId(),
-                });
+        if (countInput) {
+            countInput.addEventListener("input", (e) => {
+                count = (e.target as HTMLInputElement).value;
+                if (deleteBtn) {
+                    deleteBtn.textContent = `Delete ${count} message${parseInt(count) === 1 ? "" : "s"}`;
+                }
             });
-    }, [channelId, currentUserId, isGuildChannel]);
+        }
 
-    const totalMessages = userMessageIds.length;
+        if (deleteBtn) {
+            deleteBtn.addEventListener("mouseenter", () => {
+                deleteBtn.style.transform = "translateY(-2px)";
+                deleteBtn.style.boxShadow = "0 4px 16px rgba(237, 66, 69, 0.6)";
+            });
+            deleteBtn.addEventListener("mouseleave", () => {
+                deleteBtn.style.transform = "translateY(0)";
+                deleteBtn.style.boxShadow = "0 0 12px rgba(237, 66, 69, 0.4)";
+            });
+            deleteBtn.addEventListener("click", async () => {
+                playButtonSound();
+                await handleDelete();
+            });
+        }
+    }
 
-    React.useEffect(() => {
-        const id = "vermLib-md-styles";
-        if (document.getElementById(id)) return;
-        const style = document.createElement("style");
-        style.id = id;
-        style.textContent = `
-    .md-root { animation: md-fade-in .25s ease-out; }
-    @keyframes md-fade-in { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: translateY(0);} }
-    .md-input input {
-        box-shadow: 0 0 0 0 rgba(0,0,0,0);
-        transition: box-shadow .2s ease, border-color .2s ease;
-        color: var(--header-primary);
-        -webkit-text-fill-color: var(--header-primary);
-        caret-color: var(--header-primary);
-    }
-    .md-input input::placeholder { color: var(--text-muted); opacity: 1; }
-    .md-input input:focus {
-        box-shadow: 0 0 0 2px var(--brand-500, #5865F2) inset;
-        border-color: var(--brand-560, var(--brand-500));
-    }
-    .md-stat-card {
-        background: var(--background-tertiary);
-        border: 1px solid var(--background-modifier-accent);
-        border-radius: 8px;
-        padding: 12px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .md-stat-label {
-        color: var(--text-muted);
-        font-size: 12px;
-        margin-bottom: 4px;
-    }
-    .md-stat-value {
-        color: var(--header-primary);
-        font-size: 20px;
-        font-weight: 600;
-    }
-    .md-progress-container {
-        width: 165%;
-        height: 6px;
-        background: var(--background-secondary);
-        border-radius: 3px;
-        overflow: hidden;
-        margin: 8px 0;
-    }
-    .md-progress-bar {
-        height: 100%;
-        background: linear-gradient(90deg, var(--brand-500, #5865F2), var(--brand-560, #4752C4));
-        border-radius: 3px;
-        transition: width 0.3s ease;
-        box-shadow: 0 0 8px rgba(88, 101, 242, 0.6);
-    }
-    .md-loading-text {
-        color: var(--text-muted);
-        font-size: 13px;
-        text-align: center;
-        margin-top: 12px;
-    }
-        `;
-        document.head.appendChild(style);
-        return () => style.remove();
-    }, []);
-
-    const handleDelete = async () => {
+    async function handleDelete() {
         if (!channelId) {
             Toasts.show({
                 message: "No channel selected",
@@ -528,26 +761,13 @@ function DeleteMessageModal(props: { modalProps: any }) {
             return;
         }
 
-        let confirmed = false;
-        await new Promise<void>((resolve) => {
-            Alerts.show({
-                title: "Delete your messages?",
-                body: Parser.parse(
-                    `You are about to delete ${messageCount} of your message${messageCount === 1 ? "" : "s"} in **${channelName}**. This action cannot be undone.`,
-                ),
-                confirmText: `Delete ${messageCount}`,
-                cancelText: "Cancel",
-                onConfirm: () => {
-                    confirmed = true;
-                    resolve();
-                },
-                onCancel: () => resolve(),
-            });
-        });
+        const confirmed = await showCustomModal(
+            "Delete your messages?",
+            `You are about to delete ${messageCount} message${messageCount === 1 ? "" : "s"} in ${channelName}. This action cannot be undone.`,
+        );
         if (!confirmed) return;
 
-        // Close modal and show progress
-        onClose?.();
+        close();
         showDeletionProgress(0, messageCount);
 
         const startTime = Date.now();
@@ -605,155 +825,74 @@ function DeleteMessageModal(props: { modalProps: any }) {
                 });
             }, 300);
         }
+    }
+
+    renderModal();
+
+    // Load messages
+    if (!channelId || !currentUserId) {
+        loading = false;
+        renderModal();
+        return;
+    }
+
+    const maxBatches = isGuildChannel ? 10 : 50;
+
+    loadAllMessages(
+        channelId,
+        currentUserId,
+        maxBatches,
+        (batchCount, totalBatches) => {
+            loadingProgress = (batchCount / totalBatches) * 100;
+            const loadBar = modal.querySelector("#md-load-bar") as HTMLElement;
+            if (loadBar) {
+                loadBar.style.width = `${loadingProgress}%`;
+            }
+        },
+    )
+        .then((messageIds) => {
+            userMessageIds = messageIds;
+            loading = false;
+            renderModal();
+        })
+        .catch((error) => {
+            console.error("[MessageDeleter] Failed to load messages:", error);
+            loading = false;
+            Toasts.show({
+                message: "Failed to load messages. Using cached messages only.",
+                type: Toasts.Type.FAILURE,
+                id: Toasts.genId(),
+            });
+            renderModal();
+        });
+
+    // Handle overlay click and escape
+    const handleOverlayClick = (e: MouseEvent) => {
+        if (e.target === container) {
+            playButtonSound();
+            close();
+        }
     };
 
-    return (
-        <ModalRoot
-            {...props.modalProps}
-            size={ModalSize.SMALL}
-            style={{ width: FIXED_MODAL_WIDTH }}
-        >
-            <ModalHeader>
-                <Forms.FormTitle
-                    tag="h2"
-                    style={{ margin: 0, color: "var(--header-primary)" }}
-                >
-                    Delete Messages
-                </Forms.FormTitle>
-            </ModalHeader>
+    const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+            playButtonSound();
+            close();
+        }
+    };
 
-            <ModalContent>
-                <div
-                    className="md-root"
-                    style={{ width: "100%", maxWidth: FIXED_MODAL_WIDTH }}
-                >
-                    <Forms.FormSection>
-                        <Forms.FormText style={{ marginBottom: 12 }}>
-                            Delete your messages from{" "}
-                            <strong>{channelName}</strong>
-                        </Forms.FormText>
+    container.addEventListener("click", handleOverlayClick);
+    document.addEventListener("keydown", handleEscape);
 
-                        {loading ? (
-                            <div
-                                style={{
-                                    textAlign: "center",
-                                    padding: "20px 0",
-                                }}
-                            >
-                                <div className="md-progress-container">
-                                    <div
-                                        className="md-progress-bar"
-                                        style={{ width: `${loadingProgress}%` }}
-                                    />
-                                </div>
-                                <Forms.FormText className="md-loading-text">
-                                    Loading messages...
-                                </Forms.FormText>
-                            </div>
-                        ) : (
-                            <>
-                                <div
-                                    className="md-stat-card"
-                                    style={{ marginBottom: 16 }}
-                                >
-                                    <div>
-                                        <div className="md-stat-label">
-                                            Your messages loaded
-                                            {isGuildChannel && (
-                                                <span>
-                                                    {" "}
-                                                    (up to 1,000 checked)
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="md-stat-value">
-                                            {totalMessages.toLocaleString()}
-                                        </div>
-                                    </div>
-                                    <svg
-                                        width="32"
-                                        height="32"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                    >
-                                        <path
-                                            d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"
-                                            fill="var(--text-muted)"
-                                            opacity="0.3"
-                                        />
-                                    </svg>
-                                </div>
+    const originalClose = close;
+    const wrappedClose = () => {
+        container.removeEventListener("click", handleOverlayClick);
+        document.removeEventListener("keydown", handleEscape);
+        originalClose();
+        currentModalInstance = null;
+    };
 
-                                <Forms.FormTitle
-                                    tag="h5"
-                                    style={{ marginBottom: 8 }}
-                                >
-                                    Number of Messages to Delete
-                                </Forms.FormTitle>
-
-                                <div className="md-input">
-                                    <input
-                                        type="number"
-                                        value={count}
-                                        onChange={(e) =>
-                                            setCount(e.currentTarget.value)
-                                        }
-                                        placeholder="Enter number of messages"
-                                        min="1"
-                                        max={totalMessages}
-                                        style={{
-                                            width: "100%",
-                                            background:
-                                                "var(--background-tertiary)",
-                                            color: "var(--header-primary)",
-                                            border: "1px solid var(--background-modifier-accent)",
-                                            borderRadius: 8,
-                                            outline: "none",
-                                            padding: "8px 10px",
-                                            boxSizing: "border-box",
-                                        }}
-                                    />
-                                </div>
-                            </>
-                        )}
-
-                        <Divider className="marginTop16 marginBottom16" />
-
-                        <Forms.FormText style={{ color: "var(--text-danger)" }}>
-                            Warning: Deleted messages cannot be recovered.
-                        </Forms.FormText>
-                    </Forms.FormSection>
-                </div>
-            </ModalContent>
-
-            <ModalFooter>
-                <div
-                    style={{
-                        display: "flex",
-                        alignItems: "center",
-                        width: "100%",
-                        gap: 12,
-                    }}
-                >
-                    <Button
-                        look={Button.Looks.LINK}
-                        color={Button.Colors.PRIMARY}
-                        onClick={onClose}
-                    >
-                        Cancel
-                    </Button>
-                    <div style={{ flex: 1 }} />
-                    <Button
-                        color={Button.Colors.RED}
-                        disabled={loading || !count || parseInt(count) <= 0}
-                        onClick={handleDelete}
-                    >
-                        {`Delete ${count || "0"} message${parseInt(count) === 1 ? "" : "s"}`}
-                    </Button>
-                </div>
-            </ModalFooter>
-        </ModalRoot>
-    );
+    currentModalInstance.close = wrappedClose;
 }
 
 let mountedNode: HTMLElement | null = null;
@@ -812,7 +951,10 @@ function createButton(onClick: () => void): HTMLElement {
         document.head.appendChild(style);
     }
 
-    const activate = () => onClick();
+    const activate = () => {
+        playButtonSound();
+        onClick();
+    };
 
     const buttonDiv = container.querySelector(".button__74017") as HTMLElement;
     if (buttonDiv) {
@@ -852,7 +994,7 @@ function ensureInjected() {
     const firstChild = buttonsContainer.firstElementChild;
 
     const node = createButton(() => {
-        openModal((mProps) => <DeleteMessageModal modalProps={mProps} />);
+        openDeleteMessageModal();
     });
 
     if (firstChild) {
@@ -904,5 +1046,7 @@ export default {
         unsubscribeReinjection();
         stopObserve();
         cleanupInjected();
+        currentModalInstance?.close();
+        hideDeletionProgress();
     },
 } as const;

@@ -4,16 +4,6 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { Divider } from "@components/Divider";
-import {
-    ModalCloseButton,
-    ModalContent,
-    ModalFooter,
-    ModalHeader,
-    ModalRoot,
-    ModalSize,
-    openModal,
-} from "@utils/modal";
 import {
     Alerts,
     Button,
@@ -34,226 +24,352 @@ type GuildLite = {
     ownerId: string;
 };
 
+const BUTTON_CLICK_SOUND =
+    "https://cdn.discordapp.com/attachments/1287309916909867070/1435824882280698006/ButtonClick.mp3?ex=690d5fa0&is=690c0e20&hm=fff0e8251321ee626e59ba33ff948816781028ef41f008feee131f764bef5fe4&";
+
+function playButtonSound() {
+    const audio = new Audio(BUTTON_CLICK_SOUND);
+    audio.volume = 0.3;
+    audio.play().catch(() => {});
+}
+
 function getGuildIconURL(g: GuildLite, size = 64) {
     if (!g.icon) return null;
     return `https://cdn.discordapp.com/icons/${g.id}/${g.icon}.${g.icon.startsWith("a_") ? "gif" : "png"}?size=${size}`;
 }
 
 async function leaveGuild(guildId: string) {
-    // This calls the same endpoint the client uses to leave a guild
-    // DELETE /users/@me/guilds/:guild_id
     return RestAPI.del({
         url: `/users/@me/guilds/${guildId}`,
     });
 }
 
-function SelectiveLeaveModal(props: { modalProps: any }) {
-    const { onClose } = props.modalProps;
-    const meId = UserStore.getCurrentUser()?.id;
+function showCustomModal(title: string, body: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        const overlay = document.createElement("div");
+        overlay.id = `custom-modal-overlay-${Date.now()}`;
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+            z-index: 9998;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: ssl-fade-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+        `;
 
-    // Fixed modal width so the window size doesn't change between tabs
-    // Keeps a consistent width while remaining responsive to viewport size
-    const FIXED_MODAL_WIDTH = "min(840px, calc(100vw - 64px))";
+        const modal = document.createElement("div");
+        modal.style.cssText = `
+            background: color-mix(in oklab, var(--background-secondary) 90%, black 10%);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(10px);
+            padding: 24px;
+            min-width: 400px;
+            max-width: 500px;
+            gap: 16px;
+            display: flex;
+            flex-direction: column;
+        `;
 
-    // Data
-    const allGuilds = React.useMemo(() => {
-        const map = GuildStore.getGuilds?.() ?? {};
-        const list: GuildLite[] = Object.values(map as Record<string, any>).map(
-            (g) => ({
-                id: g.id,
-                name: g.name,
-                icon: g.icon,
-                ownerId: g.ownerId,
-            }),
-        );
-        return list.sort((a, b) => a.name.localeCompare(b.name));
-    }, []);
-    const ownedGuilds = React.useMemo(
-        () => allGuilds.filter((g) => g.ownerId === meId),
-        [allGuilds, meId],
-    );
-    const joinedGuilds = React.useMemo(
-        () => allGuilds.filter((g) => g.ownerId !== meId),
-        [allGuilds, meId],
-    );
+        const titleEl = document.createElement("div");
+        titleEl.style.cssText = `
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--header-primary);
+            letter-spacing: 0.5px;
+        `;
+        titleEl.textContent = title;
+        modal.appendChild(titleEl);
 
-    // UI State
-    const [activeTab, setActiveTab] = React.useState<"joined" | "owned">(
-        "joined",
-    );
-    const [query, setQuery] = React.useState("");
-    const [selectedJoined, setSelectedJoined] = React.useState<Set<string>>(
-        new Set(),
-    );
-    const [selectedOwned, setSelectedOwned] = React.useState<Set<string>>(
-        new Set(),
-    );
-    const [working, setWorking] = React.useState(false);
+        const bodyEl = document.createElement("div");
+        bodyEl.style.cssText = `
+            font-size: 14px;
+            color: white;
+            line-height: 1.5;
+        `;
+        bodyEl.textContent = body;
+        modal.appendChild(bodyEl);
 
-    // Filtered lists
-    const filteredOwned = React.useMemo(() => {
-        const q = query.trim().toLowerCase();
-        if (!q) return ownedGuilds;
-        return ownedGuilds.filter(
-            (g) => g.name.toLowerCase().includes(q) || g.id.includes(q),
-        );
-    }, [ownedGuilds, query]);
-    const filteredJoined = React.useMemo(() => {
-        const q = query.trim().toLowerCase();
-        if (!q) return joinedGuilds;
-        return joinedGuilds.filter(
-            (g) => g.name.toLowerCase().includes(q) || g.id.includes(q),
-        );
-    }, [joinedGuilds, query]);
+        const buttonContainer = document.createElement("div");
+        buttonContainer.style.cssText = `
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 16px;
+        `;
 
-    // Current context
-    const currentList = activeTab === "joined" ? filteredJoined : filteredOwned;
-    const currentSelected =
-        activeTab === "joined" ? selectedJoined : selectedOwned;
-
-    // Selection helpers
-    const setCurrentSelected = (next: Set<string>) => {
-        if (activeTab === "joined") setSelectedJoined(next);
-        else setSelectedOwned(next);
-    };
-
-    const toggleSel = (id: string) => {
-        setCurrentSelected((prev) => {
-            const n = new Set(prev);
-            n.has(id) ? n.delete(id) : n.add(id);
-            return n;
+        const cancelBtn = document.createElement("button");
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.style.cssText = `
+            background: transparent;
+            border: none;
+            color: var(--header-primary);
+            cursor: pointer;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        `;
+        cancelBtn.addEventListener("click", () => {
+            playButtonSound();
+            closeModal();
+            resolve(false);
         });
-    };
+        cancelBtn.addEventListener("mouseenter", () => {
+            cancelBtn.style.color = "var(--text-muted)";
+        });
+        cancelBtn.addEventListener("mouseleave", () => {
+            cancelBtn.style.color = "var(--header-primary)";
+        });
+        buttonContainer.appendChild(cancelBtn);
 
-    const selectAllVisible = () => {
-        const s = new Set(currentSelected);
-        for (const g of currentList) s.add(g.id);
-        setCurrentSelected(s);
-    };
+        const confirmBtn = document.createElement("button");
+        confirmBtn.textContent = "Continue";
+        confirmBtn.style.cssText = `
+            background: var(--brand-500);
+            border: 1px solid rgba(88, 101, 242, 0.3);
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            box-shadow: 0 0 12px rgba(88, 101, 242, 0.4);
+        `;
+        confirmBtn.addEventListener("click", () => {
+            playButtonSound();
+            closeModal();
+            resolve(true);
+        });
+        confirmBtn.addEventListener("mouseenter", () => {
+            confirmBtn.style.transform = "translateY(-2px)";
+            confirmBtn.style.boxShadow = "0 4px 16px rgba(88, 101, 242, 0.6)";
+        });
+        confirmBtn.addEventListener("mouseleave", () => {
+            confirmBtn.style.transform = "translateY(0)";
+            confirmBtn.style.boxShadow = "0 0 12px rgba(88, 101, 242, 0.4)";
+        });
+        buttonContainer.appendChild(confirmBtn);
 
-    const deselectAll = () => setCurrentSelected(new Set());
+        modal.appendChild(buttonContainer);
+        overlay.appendChild(modal);
 
-    // Inject styles for modern look (glow, animations, spacing)
-    React.useEffect(() => {
-        const id = "vermLib-ssl-styles";
-        if (document.getElementById(id)) return;
-        const style = document.createElement("style");
-        style.id = id;
-        style.textContent = `
-.ssl-root { animation: ssl-fade-in .25s ease-out; }
-@keyframes ssl-fade-in { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: translateY(0);} }
+        function closeModal() {
+            overlay.style.animation =
+                "ssl-fade-out 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards";
+            setTimeout(() => overlay.remove(), 250);
+        }
 
-/* Top toolbar spacing and interactive feedback */
-.ssl-toolbar { padding: 6px 4px; }
-.ssl-toolbar button { box-shadow: 0 0 0 0 rgba(88,101,242,.0); transition: box-shadow .2s ease, transform .08s ease; }
-.ssl-toolbar button:hover { box-shadow: 0 0 12px rgba(88,101,242,.35); }
-.ssl-toolbar button:active { transform: translateY(1px) scale(.99); }
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) {
+                playButtonSound();
+                closeModal();
+                resolve(false);
+            }
+        });
 
-/* Tabs equal width */
-.ssl-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-.ssl-tab { width: 100%; justify-content: center; }
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                playButtonSound();
+                document.removeEventListener("keydown", handleEscape);
+                closeModal();
+                resolve(false);
+            }
+        };
+        document.addEventListener("keydown", handleEscape);
 
-/* Search input focus glow */
-.ssl-search input { box-shadow: 0 0 0 0 rgba(0,0,0,0); transition: box-shadow .2s ease, border-color .2s ease; color: var(--header-primary); -webkit-text-fill-color: var(--header-primary); caret-color: var(--header-primary); box-sizing: border-box; max-width: 100%; }
-.ssl-search input::placeholder { color: var(--text-muted); opacity: 1; }
-.ssl-search input:focus { box-shadow: 0 0 0 2px var(--brand-500, #5865F2) inset; border-color: var(--brand-560, var(--brand-500)); }
-
-/* List surface, hover animation, and hidden scrollbars */
-.ssl-list {
-  border-radius: 12px;
-  box-shadow: 0 6px 24px rgba(0,0,0,.25), 0 0 0 1px rgba(255,255,255,.03) inset;
-  scrollbar-width: none; /* Firefox */
+        document.body.appendChild(overlay);
+    });
 }
-.ssl-list::-webkit-scrollbar { display: none; } /* WebKit */
-.ssl-list label { transition: transform .12s ease, background .12s ease, box-shadow .12s ease; }
-.ssl-list label:hover { transform: translateY(-1px); background: var(--background-modifier-hover); box-shadow: 0 2px 12px rgba(0,0,0,.2); }
+
+let deletionProgressElement: HTMLElement | null = null;
+
+function createDeletionProgressToast(): HTMLElement {
+    const container = document.createElement("div");
+    container.id = "ssl-deletion-progress";
+    container.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--background-secondary);
+        border: 1px solid var(--background-modifier-accent);
+        border-radius: 12px;
+        padding: 16px 24px;
+        min-width: 360px;
+        max-width: 500px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        z-index: 10000;
+        backdrop-filter: blur(10px);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif;
+        transition: opacity 0.3s ease, transform 0.3s ease;
+    `;
+
+    container.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <svg class="ssl-spinner" width="20" height="20" viewBox="0 0 24 24" fill="none" style="animation: ssl-spin 1s linear infinite;">
+                    <circle cx="12" cy="12" r="10" stroke="var(--brand-500)" stroke-width="2" stroke-dasharray="15.7 31.4" />
+                </svg>
+                <span style="color: var(--header-primary); font-weight: 500; font-size: 14px;">
+                    Processing
+                </span>
+            </div>
+            <span style="color: var(--text-muted); font-size: 12px; font-weight: 500;">
+                <span id="ssl-progress-text">0/0</span>
+            </span>
+        </div>
+        <div style="
+            width: 100%;
+            height: 4px;
+            background: var(--background-tertiary);
+            border-radius: 2px;
+            overflow: hidden;
+        ">
+            <div id="ssl-progress-bar" style="
+                height: 100%;
+                background: linear-gradient(90deg, var(--brand-500, #5865F2), var(--brand-560, #4752C4));
+                border-radius: 2px;
+                width: 0%;
+                transition: width 0.2s ease;
+                box-shadow: 0 0 12px rgba(88, 101, 242, 0.6);
+            "></div>
+        </div>
+    `;
+
+    if (!document.getElementById("ssl-spinner-styles")) {
+        const style = document.createElement("style");
+        style.id = "ssl-spinner-styles";
+        style.textContent = `
+            @keyframes ssl-spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
         `;
         document.head.appendChild(style);
-        return () => {
-            style.remove();
-        };
-    }, []);
-
-    // no-op (replaced by filteredOwned/filteredJoined/currentList)
-
-    const selectedJoinedIds = React.useMemo(
-        () =>
-            [...selectedJoined].filter((id) =>
-                joinedGuilds.some((g) => g.id === id),
-            ),
-        [selectedJoined, joinedGuilds],
-    );
-    const selectedOwnedIds = React.useMemo(
-        () =>
-            [...selectedOwned].filter((id) =>
-                ownedGuilds.some((g) => g.id === id),
-            ),
-        [selectedOwned, ownedGuilds],
-    );
-
-    // Delete guild (owner only). Support optional 2FA via X-Discord-MFA-Code
-    async function deleteGuildOnce(guildId: string, mfaCode?: string) {
-        return RestAPI.del({
-            url: `/guilds/${guildId}`,
-            headers: mfaCode
-                ? ({ "X-Discord-MFA-Code": mfaCode } as any)
-                : undefined,
-        } as any);
     }
 
-    async function massDeleteOwned() {
-        if (!selectedOwnedIds.length) return;
+    return container;
+}
 
-        // triple confirm
-        const confirms = [
-            {
-                title: "Delete owned servers?",
-                body: `You are about to delete ${selectedOwnedIds.length} server${selectedOwnedIds.length === 1 ? "" : "s"}. This action is permanent.`,
-            },
-            {
-                title: "Are you absolutely sure?",
-                body: "This will permanently delete all selected servers and cannot be undone.",
-            },
-            {
-                title: "Final confirmation",
-                body: "Type your 2FA code if enabled in the next prompt. Proceed?",
-            },
-        ];
-        for (const c of confirms) {
-            let ok = false;
-            await new Promise<void>((resolve) => {
-                Alerts.show({
-                    title: c.title,
-                    body: Parser.parse(c.body),
-                    confirmText: "Continue",
-                    cancelText: "Cancel",
-                    onConfirm: () => {
-                        ok = true;
-                        resolve();
-                    },
-                    onCancel: () => resolve(),
-                });
-            });
-            if (!ok) return;
-        }
+function showDeletionProgress(deleted: number, total: number) {
+    if (!deletionProgressElement) {
+        deletionProgressElement = createDeletionProgressToast();
+        document.body.appendChild(deletionProgressElement);
+    }
 
-        let mfaCode: string | undefined;
-        // Simple prompt for 2FA code; users without 2FA can leave blank
+    const percentage = (deleted / total) * 100;
+    const progressBar = deletionProgressElement.querySelector(
+        "#ssl-progress-bar",
+    ) as HTMLElement;
+    const progressText =
+        deletionProgressElement.querySelector("#ssl-progress-text");
+
+    if (progressBar) {
+        progressBar.style.width = `${percentage}%`;
+    }
+    if (progressText) {
+        progressText.textContent = `${deleted}/${total}`;
+    }
+}
+
+function hideDeletionProgress() {
+    if (deletionProgressElement) {
+        deletionProgressElement.style.opacity = "0";
+        deletionProgressElement.style.transform =
+            "translateX(-50%) translateY(-10px)";
+
+        setTimeout(() => {
+            deletionProgressElement?.remove();
+            deletionProgressElement = null;
+        }, 300);
+    }
+}
+
+let currentMenuInstance: {
+    close: () => void;
+    container: HTMLElement;
+} | null = null;
+
+interface MenuState {
+    activeTab: "joined" | "owned";
+    query: string;
+    selectedJoined: Set<string>;
+    selectedOwned: Set<string>;
+    working: boolean;
+}
+
+let menuState: MenuState = {
+    activeTab: "joined",
+    query: "",
+    selectedJoined: new Set(),
+    selectedOwned: new Set(),
+    working: false,
+};
+
+async function deleteGuildOnce(guildId: string, mfaCode?: string) {
+    return RestAPI.del({
+        url: `/guilds/${guildId}`,
+        headers: mfaCode
+            ? ({ "X-Discord-MFA-Code": mfaCode } as any)
+            : undefined,
+    } as any);
+}
+
+async function massDeleteOwned(selectedOwnedIds: string[]) {
+    if (!selectedOwnedIds.length) return;
+
+    const confirm1 = await showCustomModal(
+        "Delete owned servers?",
+        `You are about to delete ${selectedOwnedIds.length} server${selectedOwnedIds.length === 1 ? "" : "s"}. This action is permanent.`,
+    );
+    if (!confirm1) return;
+
+    const confirm2 = await showCustomModal(
+        "Are you absolutely sure?",
+        "This will permanently delete all selected servers and cannot be undone.",
+    );
+    if (!confirm2) return;
+
+    const confirm3 = await showCustomModal(
+        "Final confirmation",
+        "Type your 2FA code if enabled in the next prompt. Proceed?",
+    );
+    if (!confirm3) return;
+
+    let mfaCode: string | undefined;
+    try {
+        const code = window
+            .prompt("Enter your 2FA code (leave empty if not enabled):")
+            ?.trim();
+        if (code) mfaCode = code;
+    } catch {}
+
+    menuState.working = true;
+    currentMenuInstance?.close();
+    showDeletionProgress(0, selectedOwnedIds.length);
+
+    let ok = 0,
+        fail = 0;
+    for (const gid of selectedOwnedIds) {
         try {
-            const code = window
-                .prompt("Enter your 2FA code (leave empty if not enabled):")
-                ?.trim();
-            if (code) mfaCode = code;
+            await deleteGuildOnce(gid, mfaCode);
+            ok++;
+            FluxDispatcher.dispatch({
+                type: "GUILD_DELETE",
+                guild: { id: gid },
+            });
         } catch {
-            /* ignore */
-        }
-
-        setWorking(true);
-        let ok = 0,
-            fail = 0;
-
-        for (const gid of selectedOwnedIds) {
             try {
+                await new Promise((r) => setTimeout(r, 1000));
                 await deleteGuildOnce(gid, mfaCode);
                 ok++;
                 FluxDispatcher.dispatch({
@@ -261,24 +377,18 @@ function SelectiveLeaveModal(props: { modalProps: any }) {
                     guild: { id: gid },
                 });
             } catch {
-                // retry after 1s
-                try {
-                    await new Promise((r) => setTimeout(r, 1000));
-                    await deleteGuildOnce(gid, mfaCode);
-                    ok++;
-                    FluxDispatcher.dispatch({
-                        type: "GUILD_DELETE",
-                        guild: { id: gid },
-                    });
-                } catch {
-                    fail++;
-                }
+                fail++;
             }
-            // pace 300ms
-            await new Promise((r) => setTimeout(r, 300));
         }
 
-        setWorking(false);
+        showDeletionProgress(ok + fail, selectedOwnedIds.length);
+        await new Promise((r) => setTimeout(r, 300));
+    }
+
+    menuState.working = false;
+    hideDeletionProgress();
+
+    setTimeout(() => {
         Toasts.show({
             id: Toasts.genId(),
             type: fail ? Toasts.Type.FAILURE : Toasts.Type.SUCCESS,
@@ -286,36 +396,35 @@ function SelectiveLeaveModal(props: { modalProps: any }) {
                 ? `Deleted ${ok} server${ok === 1 ? "" : "s"}. ${fail} failed.`
                 : `Successfully deleted ${ok} server${ok === 1 ? "" : "s"}.`,
         });
-        onClose?.();
-    }
+    }, 300);
+}
 
-    async function massLeaveJoined() {
-        if (!selectedJoinedIds.length) return;
+async function massLeaveJoined(selectedJoinedIds: string[]) {
+    if (!selectedJoinedIds.length) return;
 
-        let confirmed = false;
-        await new Promise<void>((resolve) => {
-            Alerts.show({
-                title: "Leave selected servers?",
-                body: Parser.parse(
-                    `You are about to leave ${selectedJoinedIds.length} server${selectedJoinedIds.length === 1 ? "" : "s"}.`,
-                ),
-                confirmText: `Leave ${selectedJoinedIds.length}`,
-                cancelText: "Cancel",
-                onConfirm: () => {
-                    confirmed = true;
-                    resolve();
-                },
-                onCancel: () => resolve(),
+    const confirmed = await showCustomModal(
+        "Leave selected servers?",
+        `You are about to leave ${selectedJoinedIds.length} server${selectedJoinedIds.length === 1 ? "" : "s"}.`,
+    );
+    if (!confirmed) return;
+
+    menuState.working = true;
+    currentMenuInstance?.close();
+    showDeletionProgress(0, selectedJoinedIds.length);
+
+    let ok = 0,
+        fail = 0;
+    for (const gid of selectedJoinedIds) {
+        try {
+            await leaveGuild(gid);
+            ok++;
+            FluxDispatcher.dispatch({
+                type: "GUILD_DELETE",
+                guild: { id: gid },
             });
-        });
-        if (!confirmed) return;
-
-        setWorking(true);
-        let ok = 0,
-            fail = 0;
-
-        for (const gid of selectedJoinedIds) {
+        } catch {
             try {
+                await new Promise((r) => setTimeout(r, 1000));
                 await leaveGuild(gid);
                 ok++;
                 FluxDispatcher.dispatch({
@@ -323,22 +432,18 @@ function SelectiveLeaveModal(props: { modalProps: any }) {
                     guild: { id: gid },
                 });
             } catch {
-                try {
-                    await new Promise((r) => setTimeout(r, 1000));
-                    await leaveGuild(gid);
-                    ok++;
-                    FluxDispatcher.dispatch({
-                        type: "GUILD_DELETE",
-                        guild: { id: gid },
-                    });
-                } catch {
-                    fail++;
-                }
+                fail++;
             }
-            await new Promise((r) => setTimeout(r, 300));
         }
 
-        setWorking(false);
+        showDeletionProgress(ok + fail, selectedJoinedIds.length);
+        await new Promise((r) => setTimeout(r, 300));
+    }
+
+    menuState.working = false;
+    hideDeletionProgress();
+
+    setTimeout(() => {
         Toasts.show({
             id: Toasts.genId(),
             type: fail ? Toasts.Type.FAILURE : Toasts.Type.SUCCESS,
@@ -346,345 +451,386 @@ function SelectiveLeaveModal(props: { modalProps: any }) {
                 ? `Left ${ok} server${ok === 1 ? "" : "s"}. ${fail} failed.`
                 : `Successfully left ${ok} server${ok === 1 ? "" : "s"}.`,
         });
-        onClose?.();
-    }
-
-    return (
-        <ModalRoot
-            {...props.modalProps}
-            size={ModalSize.LARGE}
-            style={{ width: FIXED_MODAL_WIDTH }}
-        >
-            <ModalHeader>
-                <Forms.FormTitle
-                    tag="h2"
-                    style={{ margin: 0, color: "var(--header-primary)" }}
-                >
-                    Selective Server Leaver
-                </Forms.FormTitle>
-            </ModalHeader>
-
-            <ModalContent className="ssl-content">
-                <div
-                    className="ssl-root"
-                    style={{ width: "100%", maxWidth: FIXED_MODAL_WIDTH }}
-                >
-                    {/* Tabs */}
-                    <div className="ssl-tabs">
-                        <Button
-                            className="ssl-tab"
-                            size={Button.Sizes.SMALL}
-                            color={
-                                activeTab === "joined"
-                                    ? Button.Colors.BRAND
-                                    : Button.Colors.PRIMARY
-                            }
-                            onClick={() => setActiveTab("joined")}
-                        >
-                            Joined Servers
-                        </Button>
-                        <Button
-                            className="ssl-tab"
-                            size={Button.Sizes.SMALL}
-                            color={
-                                activeTab === "owned"
-                                    ? Button.Colors.BRAND
-                                    : Button.Colors.PRIMARY
-                            }
-                            onClick={() => setActiveTab("owned")}
-                        >
-                            Owned Servers
-                        </Button>
-                    </div>
-
-                    <div
-                        className="ssl-toolbar"
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "initial",
-                            marginBottom: 8,
-                            gap: 8,
-                        }}
-                    >
-                        <Forms.FormText
-                            style={{
-                                color: "var(--header-primary)",
-                                margin: 0,
-                            }}
-                        >
-                            {activeTab === "joined"
-                                ? `Selected: ${selectedJoinedIds.length}`
-                                : `Selected: ${selectedOwnedIds.length}`}
-                        </Forms.FormText>
-                        <div
-                            style={{
-                                display: "flex",
-                                gap: 16,
-                                marginLeft: "auto",
-                            }}
-                        >
-                            <Button
-                                size={Button.Sizes.MEDIUM}
-                                onClick={selectAllVisible}
-                                disabled={working || currentList.length === 0}
-                            >
-                                Select visible
-                            </Button>
-                            <Button
-                                size={Button.Sizes.MEDIUM}
-                                onClick={deselectAll}
-                                disabled={working || currentSelected.size === 0}
-                            >
-                                Clear
-                            </Button>
-                        </div>
-                    </div>
-
-                    <div
-                        className="ssl-search"
-                        style={{
-                            position: "sticky",
-                            top: 0,
-                            zIndex: 1,
-                            background: "var(--background-secondary)",
-                            paddingBottom: 8,
-                        }}
-                    >
-                        <input
-                            aria-label="Search servers"
-                            placeholder="Search by server name or ID..."
-                            value={query}
-                            onChange={(e) => setQuery(e.currentTarget.value)}
-                            style={{
-                                width: "100%",
-                                maxWidth: "100%",
-                                boxSizing: "border-box",
-                                background: "var(--background-tertiary)",
-                                color: "var(--header-primary)",
-                                WebkitTextFillColor: "var(--header-primary)",
-                                caretColor: "var(--header-primary)",
-                                border: "1px solid var(--background-modifier-accent)",
-                                borderRadius: 8,
-                                outline: "none",
-                                padding: "8px 10px",
-                            }}
-                        />
-                    </div>
-
-                    <div
-                        role="list"
-                        className="ssl-list"
-                        style={{
-                            marginTop: 8,
-                            display: "grid",
-                            gridTemplateColumns: "minmax(220px, 1fr)",
-                            gap: 8,
-                            height: 420,
-                            overflowY: "auto",
-                            overflowX: "hidden",
-                            border: "1px solid var(--background-modifier-accent)",
-                            borderRadius: 12,
-                            padding: 8,
-                            background: "var(--background-secondary)",
-                        }}
-                    >
-                        {currentList.map((g) => {
-                            const isOwner = g.ownerId === meId;
-                            const isSelected = currentSelected.has(g.id);
-                            const icon = getGuildIconURL(g, 64);
-                            return (
-                                <label
-                                    key={g.id}
-                                    role="listitem"
-                                    tabIndex={0}
-                                    style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: 10,
-                                        padding: 8,
-                                        borderRadius: 8,
-                                        width: "100%",
-                                        background: isSelected
-                                            ? "var(--background-modifier-selected)"
-                                            : "transparent",
-                                        cursor: "pointer",
-                                        border: "1px solid var(--background-modifier-accent)",
-                                    }}
-                                    onClick={(e) => {
-                                        // prevent label click from toggling if owner
-
-                                        // don't toggle when clicking on a link inside
-                                        if (
-                                            (e.target as HTMLElement).closest(
-                                                "a",
-                                            )
-                                        )
-                                            return;
-                                        toggleSel(g.id);
-                                    }}
-                                    onKeyDown={(e) => {
-                                        if (
-                                            e.key === " " ||
-                                            e.key === "Enter"
-                                        ) {
-                                            e.preventDefault();
-                                            toggleSel(g.id);
-                                        }
-                                    }}
-                                >
-                                    <div
-                                        style={{
-                                            width: 32,
-                                            height: 32,
-                                            borderRadius: 8,
-                                            overflow: "hidden",
-                                            flex: "0 0 auto",
-                                            background:
-                                                "var(--background-tertiary)",
-                                        }}
-                                    >
-                                        {icon ? (
-                                            <img
-                                                src={icon}
-                                                alt=""
-                                                width={32}
-                                                height={32}
-                                            />
-                                        ) : (
-                                            <div
-                                                style={{
-                                                    width: "100%",
-                                                    height: "100%",
-                                                    display: "grid",
-                                                    placeItems: "center",
-                                                    fontSize: 12,
-                                                    color: "var(--text-muted)",
-                                                }}
-                                            >
-                                                {g.name
-                                                    .slice(0, 2)
-                                                    .toUpperCase()}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            flexDirection: "column",
-                                            minWidth: 0,
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                color: "var(--header-primary)",
-                                                textOverflow: "ellipsis",
-                                                overflow: "hidden",
-                                                whiteSpace: "nowrap",
-                                                maxWidth: "100%",
-                                            }}
-                                        >
-                                            {g.name}
-                                        </div>
-                                        <Forms.FormText
-                                            style={{
-                                                fontSize: 12,
-                                                color: "var(--text-muted)",
-                                            }}
-                                        >
-                                            {g.id}
-                                            {isOwner ? " • Owner" : ""}
-                                        </Forms.FormText>
-                                    </div>
-                                </label>
-                            );
-                        })}
-                        {!currentList.length && (
-                            <div
-                                style={{
-                                    padding: 12,
-                                    textAlign: "center",
-                                    color: "var(--text-muted)",
-                                }}
-                            >
-                                No servers match your search.
-                            </div>
-                        )}
-                    </div>
-
-                    <Divider className="marginTop8 marginBottom8" />
-                    <Forms.FormText style={{ color: "var(--text-danger)" }}>
-                        Warning: Leaving servers is permanent. You will lose
-                        access until re-invited.
-                    </Forms.FormText>
-                </div>
-            </ModalContent>
-
-            <ModalFooter>
-                <div
-                    style={{
-                        display: "flex",
-                        alignItems: "center",
-                        width: "100%",
-                        maxWidth: FIXED_MODAL_WIDTH,
-                        gap: 12,
-                    }}
-                >
-                    <Button
-                        look={Button.Looks.LINK}
-                        color={Button.Colors.PRIMARY}
-                        onClick={onClose}
-                        disabled={working}
-                    >
-                        Cancel
-                    </Button>
-                    <div style={{ flex: 1 }} />
-                    {activeTab === "joined" ? (
-                        <Button
-                            color={Button.Colors.RED}
-                            disabled={!selectedJoinedIds.length || working}
-                            onClick={massLeaveJoined}
-                        >
-                            {working
-                                ? "Leaving..."
-                                : `Leave selected (${selectedJoinedIds.length})`}
-                        </Button>
-                    ) : (
-                        <Button
-                            color={Button.Colors.RED}
-                            disabled={!selectedOwnedIds.length || working}
-                            onClick={massDeleteOwned}
-                        >
-                            {working
-                                ? "Deleting..."
-                                : `Delete selected (${selectedOwnedIds.length})`}
-                        </Button>
-                    )}
-                </div>
-            </ModalFooter>
-        </ModalRoot>
-    );
+    }, 300);
 }
 
-// Simple DOM injector that builds a list item styled like the Quests entry
+function updateSelectionUI(container: HTMLElement) {
+    const meId = UserStore.getCurrentUser()?.id;
+    const map = GuildStore.getGuilds?.() ?? {};
+    const allGuilds: GuildLite[] = Object.values(map as Record<string, any>)
+        .map((g) => ({
+            id: g.id,
+            name: g.name,
+            icon: g.icon,
+            ownerId: g.ownerId,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+    const ownedGuilds = allGuilds.filter((g) => g.ownerId === meId);
+    const joinedGuilds = allGuilds.filter((g) => g.ownerId !== meId);
+
+    const selectedJoinedIds = [...menuState.selectedJoined].filter((id) =>
+        joinedGuilds.some((g) => g.id === id),
+    );
+    const selectedOwnedIds = [...menuState.selectedOwned].filter((id) =>
+        ownedGuilds.some((g) => g.id === id),
+    );
+
+    const selectedSpan = container.querySelector("span");
+    if (selectedSpan) {
+        selectedSpan.textContent = `Selected: ${menuState.activeTab === "joined" ? selectedJoinedIds.length : selectedOwnedIds.length}`;
+    }
+
+    const actionBtn = container.querySelector(
+        "#action-btn",
+    ) as HTMLButtonElement;
+    if (actionBtn) {
+        const count =
+            menuState.activeTab === "joined"
+                ? selectedJoinedIds.length
+                : selectedOwnedIds.length;
+        actionBtn.textContent = menuState.working
+            ? menuState.activeTab === "joined"
+                ? "Leaving..."
+                : "Deleting..."
+            : menuState.activeTab === "joined"
+              ? `Leave selected (${count})`
+              : `Delete selected (${count})`;
+        actionBtn.style.opacity =
+            count === 0 || menuState.working ? "0.5" : "1";
+        actionBtn.style.cursor =
+            count === 0 || menuState.working ? "not-allowed" : "pointer";
+        actionBtn.disabled = count === 0 || menuState.working;
+    }
+
+    container.querySelectorAll(".guild-item").forEach((item) => {
+        const id = item.getAttribute("data-id");
+        const isSelected =
+            menuState.activeTab === "joined"
+                ? menuState.selectedJoined.has(id!)
+                : menuState.selectedOwned.has(id!);
+
+        if (isSelected) {
+            item.style.background = "rgba(88, 101, 242, 0.15)";
+            item.style.borderColor = "rgba(88, 101, 242, 0.3)";
+        } else {
+            item.style.background = "transparent";
+            item.style.borderColor = "rgba(255, 255, 255, 0.03)";
+        }
+    });
+}
+
+function renderMenu(container: HTMLElement) {
+    const meId = UserStore.getCurrentUser()?.id;
+    const map = GuildStore.getGuilds?.() ?? {};
+    const allGuilds: GuildLite[] = Object.values(map as Record<string, any>)
+        .map((g) => ({
+            id: g.id,
+            name: g.name,
+            icon: g.icon,
+            ownerId: g.ownerId,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+    const ownedGuilds = allGuilds.filter((g) => g.ownerId === meId);
+    const joinedGuilds = allGuilds.filter((g) => g.ownerId !== meId);
+
+    const q = menuState.query.trim().toLowerCase();
+    const filteredOwned = !q
+        ? ownedGuilds
+        : ownedGuilds.filter(
+              (g) => g.name.toLowerCase().includes(q) || g.id.includes(q),
+          );
+    const filteredJoined = !q
+        ? joinedGuilds
+        : joinedGuilds.filter(
+              (g) => g.name.toLowerCase().includes(q) || g.id.includes(q),
+          );
+
+    const currentList =
+        menuState.activeTab === "joined" ? filteredJoined : filteredOwned;
+    const currentSelected =
+        menuState.activeTab === "joined"
+            ? menuState.selectedJoined
+            : menuState.selectedOwned;
+    const selectedJoinedIds = [...menuState.selectedJoined].filter((id) =>
+        joinedGuilds.some((g) => g.id === id),
+    );
+    const selectedOwnedIds = [...menuState.selectedOwned].filter((id) =>
+        ownedGuilds.some((g) => g.id === id),
+    );
+
+    container.innerHTML = `
+        <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, var(--background-primary) 0%, var(--background-secondary) 100%); backdrop-filter: blur(10px); z-index: 9997; animation: ssl-fade-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); display: flex; align-items: center; justify-content: center;" id="ssl-overlay">
+            <div style="width: min(840px, calc(100vw - 64px)); max-height: calc(100vh - 64px); background: color-mix(in oklab, var(--background-secondary) 90%, black 10%); border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 16px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.03); backdrop-filter: blur(10px); display: flex; flex-direction: column; overflow: hidden; padding: 24px; gap: 16px;">
+                <div style="font-size: 20px; font-weight: 600; color: var(--header-primary); letter-spacing: 0.5px;">
+                    Selective Server Leaver
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <button id="tab-joined" style="background: ${menuState.activeTab === "joined" ? "var(--brand-500)" : "color-mix(in oklab, var(--background-secondary) 90%, black 10%)"}; border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 8px; color: var(--header-primary); padding: 8px 12px; cursor: pointer; transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); box-shadow: ${menuState.activeTab === "joined" ? "0 0 12px rgba(88, 101, 242, 0.6)" : "0 2px 10px rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.03)"}; font-size: 14px; font-weight: 500;">Joined Servers</button>
+                    <button id="tab-owned" style="background: ${menuState.activeTab === "owned" ? "var(--brand-500)" : "color-mix(in oklab, var(--background-secondary) 90%, black 10%)"}; border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 8px; color: var(--header-primary); padding: 8px 12px; cursor: pointer; transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); box-shadow: ${menuState.activeTab === "owned" ? "0 0 12px rgba(88, 101, 242, 0.6)" : "0 2px 10px rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.03)"}; font-size: 14px; font-weight: 500;">Owned Servers</button>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="color: var(--header-primary); font-size: 14px; font-weight: 500;">
+                        Selected: ${menuState.activeTab === "joined" ? selectedJoinedIds.length : selectedOwnedIds.length}
+                    </span>
+                    <div style="flex: 1;"></div>
+                    <button id="select-all" style="background: color-mix(in oklab, var(--background-secondary) 90%, black 10%); border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 8px; color: var(--header-primary); padding: 6px 12px; cursor: pointer; font-size: 12px; font-weight: 500;">Select visible</button>
+                    <button id="clear-all" style="background: color-mix(in oklab, var(--background-secondary) 90%, black 10%); border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 8px; color: var(--header-primary); padding: 6px 12px; cursor: pointer; font-size: 12px; font-weight: 500;">Clear</button>
+                </div>
+
+                <input id="search-input" placeholder="Search by server name or ID..." style="background: color-mix(in oklab, var(--background-secondary) 90%, black 10%); border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 8px; color: var(--header-primary); padding: 8px 10px; transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); backdrop-filter: blur(10px); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.03); outline: none; font-size: 14px;" value="${menuState.query}">
+
+                <div id="guild-list" style="display: grid; gap: 8px; height: 420px; overflow-y: auto; overflow-x: hidden; padding: 8px; background: color-mix(in oklab, var(--background-secondary) 90%, black 10%); border: 1px solid rgba(255, 255, 255, 0.03); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(255, 255, 255, 0.03); backdrop-filter: blur(10px);">
+                    ${
+                        currentList.length
+                            ? currentList
+                                  .map((g) => {
+                                      const isOwner = g.ownerId === meId;
+                                      const isSelected = currentSelected.has(
+                                          g.id,
+                                      );
+                                      const icon = getGuildIconURL(g, 64);
+                                      return `
+                            <div class="guild-item" data-id="${g.id}" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; background: ${isSelected ? "rgba(88, 101, 242, 0.15)" : "transparent"}; border: 1px solid ${isSelected ? "rgba(88, 101, 242, 0.3)" : "rgba(255, 255, 255, 0.03)"}; cursor: pointer; transition: all 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);">
+                                <div style="width: 32px; height: 32px; border-radius: 8px; overflow: hidden; flex: 0 0 auto; background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: center;">
+                                    ${icon ? `<img src="${icon}" alt="" width="32" height="32" style="width: 100%; height: 100%;">` : `<span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">${g.name.slice(0, 2).toUpperCase()}</span>`}
+                                </div>
+                                <div style="display: flex; flex-direction: column; min-width: 0; flex: 1;">
+                                    <div style="color: var(--header-primary); font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;">${g.name}</div>
+                                    <div style="color: var(--text-muted); font-size: 12px;">${g.id}${isOwner ? " • Owner" : ""}</div>
+                                </div>
+                            </div>
+                        `;
+                                  })
+                                  .join("")
+                            : `<div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 14px;">No servers match your search.</div>`
+                    }
+                </div>
+
+                <div style="color: var(--text-danger); font-size: 12px; padding: 8px 0;">
+                    Warning: Leaving servers is permanent. You will lose access until re-invited.
+                </div>
+
+                <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                    <button id="cancel-btn" style="background: transparent; border: none; color: var(--header-primary); cursor: pointer; padding: 6px 12px; font-size: 14px; font-weight: 500;">Cancel</button>
+                    <button id="action-btn" style="background: rgba(237, 66, 69, 0.1); border: 1px solid rgba(237, 66, 69, 0.15); border-radius: 8px; color: #ED4245; padding: 6px 12px; cursor: pointer; transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); font-size: 14px; font-weight: 500;">
+                        ${menuState.working ? (menuState.activeTab === "joined" ? "Leaving..." : "Deleting...") : menuState.activeTab === "joined" ? `Leave selected (${selectedJoinedIds.length})` : `Delete selected (${selectedOwnedIds.length})`}
+                    </button>
+                </div>
+            </div>
+            <style>
+                @keyframes ssl-fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+                @keyframes ssl-fade-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(8px); } }
+                div::-webkit-scrollbar { display: none; }
+                .guild-item:hover { transform: translateY(-1px); background: rgba(88, 101, 242, 0.08) !important; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(88, 101, 242, 0.1) !important; border-color: rgba(88, 101, 242, 0.2) !important; }
+            </style>
+        </div>
+    `;
+
+    const overlay = container.querySelector("#ssl-overlay");
+    const tabJoined = container.querySelector("#tab-joined");
+    const tabOwned = container.querySelector("#tab-owned");
+    const selectAllBtn = container.querySelector("#select-all");
+    const clearAllBtn = container.querySelector("#clear-all");
+    const searchInput = container.querySelector(
+        "#search-input",
+    ) as HTMLInputElement;
+    const guildList = container.querySelector("#guild-list");
+    const cancelBtn = container.querySelector("#cancel-btn");
+    const actionBtn = container.querySelector("#action-btn");
+
+    function closeMainMenu() {
+        overlay?.style.animation === "ssl-fade-out" ||
+            (overlay!.style.animation =
+                "ssl-fade-out 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards");
+        setTimeout(() => currentMenuInstance?.close(), 250);
+    }
+
+    overlay?.addEventListener("click", (e) => {
+        if (e.target === overlay) {
+            playButtonSound();
+            closeMainMenu();
+        }
+    });
+    tabJoined?.addEventListener("click", () => {
+        playButtonSound();
+        menuState.activeTab = "joined";
+        renderMenu(container);
+    });
+    tabOwned?.addEventListener("click", () => {
+        playButtonSound();
+        menuState.activeTab = "owned";
+        renderMenu(container);
+    });
+
+    selectAllBtn?.addEventListener("click", () => {
+        playButtonSound();
+        const current =
+            menuState.activeTab === "joined"
+                ? menuState.selectedJoined
+                : menuState.selectedOwned;
+        for (const g of currentList) current.add(g.id);
+        updateSelectionUI(container);
+    });
+
+    clearAllBtn?.addEventListener("click", () => {
+        playButtonSound();
+        const current =
+            menuState.activeTab === "joined"
+                ? menuState.selectedJoined
+                : menuState.selectedOwned;
+        current.clear();
+        updateSelectionUI(container);
+    });
+
+    searchInput?.addEventListener("input", (e) => {
+        menuState.query = (e.target as HTMLInputElement).value;
+
+        // Update filtered list without re-rendering entire UI
+        const meId = UserStore.getCurrentUser()?.id;
+        const map = GuildStore.getGuilds?.() ?? {}; // or RelationshipStore for friend remover
+        const allGuilds = Object.values(map as Record<string, any>)
+            .map((g) => ({
+                id: g.id,
+                name: g.name,
+                icon: g.icon,
+                ownerId: g.ownerId,
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        const ownedGuilds = allGuilds.filter((g) => g.ownerId === meId);
+        const joinedGuilds = allGuilds.filter((g) => g.ownerId !== meId);
+
+        const q = menuState.query.trim().toLowerCase();
+        const filteredOwned = !q
+            ? ownedGuilds
+            : ownedGuilds.filter(
+                  (g) => g.name.toLowerCase().includes(q) || g.id.includes(q),
+              );
+        const filteredJoined = !q
+            ? joinedGuilds
+            : joinedGuilds.filter(
+                  (g) => g.name.toLowerCase().includes(q) || g.id.includes(q),
+              );
+
+        const currentList =
+            menuState.activeTab === "joined" ? filteredJoined : filteredOwned;
+        const currentSelected =
+            menuState.activeTab === "joined"
+                ? menuState.selectedJoined
+                : menuState.selectedOwned;
+
+        // Update only the guild list element
+        const guildListElement = container.querySelector("#guild-list");
+        if (guildListElement) {
+            guildListElement.innerHTML = currentList.length
+                ? currentList
+                      .map((g) => {
+                          const isOwner = g.ownerId === meId;
+                          const isSelected = currentSelected.has(g.id);
+                          const icon = getGuildIconURL(g, 64);
+                          return `
+                            <div class="guild-item" data-id="${g.id}" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; background: ${isSelected ? "rgba(88, 101, 242, 0.15)" : "transparent"}; border: 1px solid ${isSelected ? "rgba(88, 101, 242, 0.3)" : "rgba(255, 255, 255, 0.03)"}; cursor: pointer; transition: all 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);">
+                                <div style="width: 32px; height: 32px; border-radius: 8px; overflow: hidden; flex: 0 0 auto; background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.05); display: flex; align-items: center; justify-content: center;">
+                                    ${icon ? `<img src="${icon}" alt="" width="32" height="32" style="width: 100%; height: 100%;">` : `<span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">${g.name.slice(0, 2).toUpperCase()}</span>`}
+                                </div>
+                                <div style="display: flex; flex-direction: column; min-width: 0; flex: 1;">
+                                    <div style="color: var(--header-primary); font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;">${g.name}</div>
+                                    <div style="color: var(--text-muted); font-size: 12px;">${g.id}${isOwner ? " • Owner" : ""}</div>
+                                </div>
+                            </div>
+                        `;
+                      })
+                      .join("")
+                : `<div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 14px;">No results match your search.</div>`;
+
+            // Re-attach event listeners to new items
+            guildListElement.querySelectorAll(".guild-item").forEach((item) => {
+                item.addEventListener("click", () => {
+                    playButtonSound();
+                    const id = item.getAttribute("data-id");
+                    if (id) {
+                        const current =
+                            menuState.activeTab === "joined"
+                                ? menuState.selectedJoined
+                                : menuState.selectedOwned;
+                        if (current.has(id)) current.delete(id);
+                        else current.add(id);
+                        updateSelectionUI(container);
+                    }
+                });
+            });
+        }
+    });
+
+    guildList?.querySelectorAll(".guild-item").forEach((item) => {
+        item.addEventListener("click", () => {
+            playButtonSound();
+            const id = item.getAttribute("data-id");
+            if (id) {
+                const current =
+                    menuState.activeTab === "joined"
+                        ? menuState.selectedJoined
+                        : menuState.selectedOwned;
+                if (current.has(id)) current.delete(id);
+                else current.add(id);
+                updateSelectionUI(container);
+            }
+        });
+    });
+
+    cancelBtn?.addEventListener("click", () => {
+        playButtonSound();
+        closeMainMenu();
+    });
+    actionBtn?.addEventListener("click", () => {
+        playButtonSound();
+        const selectedJoined = [...menuState.selectedJoined].filter((id) =>
+            joinedGuilds.some((g) => g.id === id),
+        );
+        const selectedOwned = [...menuState.selectedOwned].filter((id) =>
+            ownedGuilds.some((g) => g.id === id),
+        );
+        if (menuState.activeTab === "joined") massLeaveJoined(selectedJoined);
+        else massDeleteOwned(selectedOwned);
+    });
+}
+
+function openSelectiveLeaveMenu() {
+    const container = document.createElement("div");
+    container.id = "vermLib-ssl-menu-container";
+    document.body.appendChild(container);
+    const close = () => {
+        container.remove();
+        currentMenuInstance = null;
+    };
+    currentMenuInstance = { close, container };
+    document.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+            playButtonSound();
+            close();
+        }
+    });
+    renderMenu(container);
+}
+
 function createNavButton(onClick: () => void) {
-    // Probe the Quests item to copy classNames for consistent styling
     const questsAnchor = document.querySelector<HTMLElement>(
         'a[href="/quest-home"]',
     );
     const questsItem = questsAnchor?.closest("li") as HTMLLIElement | null;
     const questsWrapper = questsItem?.parentElement as HTMLElement | null;
-
-    // Helper to safely read classNames from the Quests item
     const getClass = (selector: string) =>
         questsItem?.querySelector<HTMLElement>(selector)?.className || "";
 
-    // Wrapper cloned from Quests wrapper so spacing/shine match
     const wrapper = document.createElement("div");
     wrapper.id = "vermLib-selective-server-leaver-entry";
     wrapper.className = questsWrapper?.className || "wrapper_ebee1d";
-    const wrapperStyle = questsWrapper?.getAttribute("style");
-    if (wrapperStyle) wrapper.setAttribute("style", wrapperStyle);
+    if (questsWrapper?.getAttribute("style"))
+        wrapper.setAttribute("style", questsWrapper.getAttribute("style")!);
 
     const li = document.createElement("li");
     li.setAttribute("role", "listitem");
@@ -696,7 +842,6 @@ function createNavButton(onClick: () => void) {
         "interactive_bf202d interactive__972a0 linkButton__972a0";
     li.appendChild(interactive);
 
-    // Use a div with the same "link" class and button semantics
     const linkLike = document.createElement("div");
     linkLike.className = getClass('a[class*="link_"]') || "link__972a0";
     linkLike.setAttribute("role", "button");
@@ -714,7 +859,6 @@ function createNavButton(onClick: () => void) {
     avatar.className = getClass('div[class*="avatar_"]') || "avatar__20a53";
     layout.appendChild(avatar);
 
-    // Icon that matches sizing/styling via the same class the Quests icon uses
     const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     icon.setAttribute(
         "class",
@@ -729,7 +873,6 @@ function createNavButton(onClick: () => void) {
     icon.setAttribute("fill", "none");
     icon.setAttribute("viewBox", "0 0 24 24");
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    // "Leave/Log out" style arrow path, styled by currentColor
     path.setAttribute("fill", "currentColor");
     path.setAttribute(
         "d",
@@ -750,22 +893,21 @@ function createNavButton(onClick: () => void) {
 
     const name = document.createElement("div");
     name.className = getClass('div[class*="name_"]') || "name__20a53";
-
     name.textContent = "Leave servers";
     nameAndDecorators.appendChild(name);
 
-    // Interactions
-    const activate = () => onClick();
     linkLike.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        activate();
+        playButtonSound();
+        onClick();
     });
     linkLike.addEventListener("keydown", (e: KeyboardEvent) => {
         if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             e.stopPropagation();
-            activate();
+            playButtonSound();
+            onClick();
         }
     });
 
@@ -774,21 +916,13 @@ function createNavButton(onClick: () => void) {
 }
 
 function findGuildsNavList(): HTMLElement | null {
-    // Try to find the main guilds list container
-    // Discord uses data-list-id="guildsnav" in the main guilds list
     const list = document.querySelector<HTMLElement>(
         '[data-list-id="guildsnav"]',
     );
-    if (list) {
-        // The list container is usually a scroller; append at the end to be under Discover
-        return list;
-    }
-
-    // Fallback: common nav container labels
-    const nav = document.querySelector<HTMLElement>(
-        'nav[aria-label="Servers"]',
+    if (list) return list;
+    return (
+        document.querySelector<HTMLElement>('nav[aria-label="Servers"]') ?? null
     );
-    return nav ?? null;
 }
 
 let mountedNode: HTMLElement | null = null;
@@ -802,29 +936,23 @@ const REINJECT_EVENTS = [
     "CONNECTION_OPEN",
     "WINDOW_FOCUS",
 ] as const;
-
 const reinjectHandler = () => ensureInjected();
 
 function subscribeReinjection() {
     try {
-        for (const ev of REINJECT_EVENTS) {
-            // @ts-expect-error: Flux types are broad, event names are strings
+        for (const ev of REINJECT_EVENTS)
             FluxDispatcher.subscribe(ev, reinjectHandler);
-        }
     } catch {}
 }
 
 function unsubscribeReinjection() {
     try {
-        for (const ev of REINJECT_EVENTS) {
-            // @ts-expect-error: Flux types are broad, event names are strings
+        for (const ev of REINJECT_EVENTS)
             FluxDispatcher.unsubscribe(ev, reinjectHandler);
-        }
     } catch {}
 }
 
 function ensureInjected() {
-    // Prefer inserting under the Quests list item in the private channels sidebar
     const questsAnchor = document.querySelector<HTMLElement>(
         'a[href="/quest-home"]',
     );
@@ -834,21 +962,10 @@ function ensureInjected() {
         (questsWrapper?.parentElement as HTMLElement | null) ??
         findGuildsNavList();
     if (!parent) return;
-
-    // Remove any existing entry so we can re-insert after current Quests slot
     document.getElementById("vermLib-selective-server-leaver-entry")?.remove();
-
-    const node = createNavButton(() => {
-        openModal((mProps) => <SelectiveLeaveModal modalProps={mProps} />);
-    });
-
-    if (questsWrapper) {
-        // Always insert right after the current Quests wrapper
-        questsWrapper.insertAdjacentElement("afterend", node);
-    } else if (parent) {
-        // Fallback: append under the guilds list
-        parent.appendChild(node);
-    }
+    const node = createNavButton(() => openSelectiveLeaveMenu());
+    if (questsWrapper) questsWrapper.insertAdjacentElement("afterend", node);
+    else if (parent) parent.appendChild(node);
     mountedNode = node;
 }
 
@@ -858,12 +975,9 @@ function cleanupInjected() {
 }
 
 function startObserve() {
-    // Observe layout changes and re-insert if Discord rerenders the guilds list
     mo = new MutationObserver(() => {
-        // If our button was removed but the nav exists, re-inject
-        if (!document.getElementById("vermLib-selective-server-leaver-entry")) {
+        if (!document.getElementById("vermLib-selective-server-leaver-entry"))
             ensureInjected();
-        }
     });
     mo.observe(document.body, { childList: true, subtree: true });
 }
@@ -875,18 +989,12 @@ function stopObserve() {
 
 export default {
     name: "SelectiveServerLeaver",
-
     start() {
-        // Immediately try to inject once
         ensureInjected();
-        // Observe rerenders to persist the button
         startObserve();
-        // Reinjection on common navigation/route events
         subscribeReinjection();
-        // Heartbeat reinjection to survive route changes/rerenders
         hb = window.setInterval(() => ensureInjected(), 1000);
     },
-
     stop() {
         if (hb) {
             clearInterval(hb);
@@ -895,5 +1003,7 @@ export default {
         unsubscribeReinjection();
         stopObserve();
         cleanupInjected();
+        currentMenuInstance?.close();
+        hideDeletionProgress();
     },
 } as const;
