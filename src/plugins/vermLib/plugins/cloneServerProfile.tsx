@@ -1,8 +1,6 @@
 /*
  * Vencord, a Discord client mod
- * Fixed version — proper guildId detection, safer fallbacks, improved logging
- * Updated: bio and server-specific avatar, banner cloning
- * Modified: Uses custom progress toast for cloning feedback
+ * Clone Server Profile - copy nickname, avatar, and banner only
  */
 
 import { NavContextMenuPatchCallback } from "@api/ContextMenu";
@@ -39,7 +37,7 @@ type FetchedProfile = {
     guild_member?: GuildMemberProfile;
 };
 
-function createDeletionProgressToast(): HTMLElement {
+function createProgressToast(): HTMLElement {
     const container = document.createElement("div");
     container.id = "md-deletion-progress";
     container.style.cssText = `
@@ -71,7 +69,7 @@ function createDeletionProgressToast(): HTMLElement {
                 </span>
             </div>
             <span style="color: var(--text-muted); font-size: 12px; font-weight: 500;">
-                <span id="md-progress-text">0/4</span>
+                <span id="md-progress-text">0/3</span>
             </span>
         </div>
         <div style="
@@ -92,7 +90,6 @@ function createDeletionProgressToast(): HTMLElement {
         </div>
     `;
 
-    // Add spinning animation
     if (!document.getElementById("md-spinner-styles")) {
         const style = document.createElement("style");
         style.id = "md-spinner-styles";
@@ -108,7 +105,7 @@ function createDeletionProgressToast(): HTMLElement {
     return container;
 }
 
-function updateProgressToast(current: number, total: number = 4) {
+function updateProgressToast(current: number, total: number = 3) {
     const progressText = document.getElementById("md-progress-text");
     const progressBar = document.getElementById("md-progress-bar");
 
@@ -242,7 +239,6 @@ async function getTargetGuildProfile(targetUserId: string, guildId: string) {
     const res: any = await RestAPI.get?.({
         url: `/users/${targetUserId}/profile?guild_id=${guildId}&with_mutual_guilds=true`,
     });
-    console.log("[CloneServerProfile] Raw API response:", res);
 
     let data: any = res?.body;
     if (!data && typeof res?.text === "string") {
@@ -252,10 +248,6 @@ async function getTargetGuildProfile(targetUserId: string, guildId: string) {
     }
     if (!data) data = res ?? {};
 
-    console.log("[CloneServerProfile] Fetched profile", {
-        hasGuildMember: !!data?.guild_member,
-        hasUser: !!data?.user,
-    });
     return data as FetchedProfile;
 }
 
@@ -276,18 +268,8 @@ async function setMyGuildProfileMedia(
     if (bannerDataUrl !== undefined) body.banner = bannerDataUrl;
 
     if (Object.keys(body).length === 0) {
-        console.log(
-            "[CloneServerProfile] Nothing to update for guild profile media",
-            { guildId },
-        );
         return;
     }
-
-    console.log("[CloneServerProfile] Setting guild profile media", {
-        guildId,
-        hasAvatar: avatarDataUrl != null,
-        hasBanner: bannerDataUrl != null,
-    });
 
     try {
         await RestAPI.patch?.({
@@ -319,31 +301,6 @@ async function setMyGuildProfileMedia(
     }
 }
 
-async function setMyUserProfile(bio?: string | null) {
-    const body: Record<string, unknown> = {};
-
-    if (bio !== undefined) body.bio = bio ?? "";
-
-    if (Object.keys(body).length === 0) {
-        console.log("[CloneServerProfile] Nothing to update for user profile");
-        return;
-    }
-
-    console.log("[CloneServerProfile] Setting user profile", {
-        hasBio: bio != null,
-    });
-
-    try {
-        await RestAPI.patch?.({
-            url: `/users/@me`,
-            body,
-        });
-    } catch (err: any) {
-        console.error("[CloneServerProfile] Failed to set user profile", err);
-        throw err;
-    }
-}
-
 const userContextPatch: NavContextMenuPatchCallback = (
     children,
     { user, guildId }: UserContextProps,
@@ -351,12 +308,6 @@ const userContextPatch: NavContextMenuPatchCallback = (
     const me = UserStore.getCurrentUser();
     const effectiveGuildId = guildId ?? getGuildIdFromLocation();
     const disabled = !user || !effectiveGuildId || (me && user?.id === me.id);
-
-    console.log("[CloneServerProfile] Context", {
-        targetUserId: user?.id,
-        effectiveGuildId,
-        disabled,
-    });
 
     children.push(
         <CtxMenu.MenuSeparator />,
@@ -375,53 +326,41 @@ const userContextPatch: NavContextMenuPatchCallback = (
 
                 if (me && user.id === me.id) return;
 
-                // Create and append progress toast
-                const progressToast = createDeletionProgressToast();
+                const progressToast = createProgressToast();
                 document.body.appendChild(progressToast);
-                updateProgressToast(0, 4);
-
-                console.log("[CloneServerProfile] Begin cloning", {
-                    targetUserId: user.id,
-                    username: user.username,
-                    effectiveGuildId,
-                });
+                updateProgressToast(0, 3);
 
                 let clonedNick = false;
                 let clonedAvatar = false;
                 let clonedBanner = false;
-                let clonedBio = false;
                 const failures: string[] = [];
 
                 try {
-                    // 1️⃣ Fetch target's full profile
+                    // 1️⃣ Fetch target's profile
                     const target = await getTargetGuildProfile(
                         user.id,
                         effectiveGuildId,
                     );
-                    updateProgressToast(1, 4);
+                    updateProgressToast(1, 3);
 
                     const targetUser: any = target?.user ?? {};
+                    const guildMember = target?.guild_member ?? {};
 
-                    // Extract all profile fields
                     const targetNick =
-                        targetUser.global_name ?? targetUser.username ?? null;
-                    const targetAvatarHash = targetUser.avatar ?? null;
-                    const targetBannerHash = targetUser.banner ?? null;
-                    const targetBio = targetUser.bio ?? null;
+                        guildMember.nick ??
+                        targetUser.global_name ??
+                        targetUser.username ??
+                        null;
+                    const targetAvatarHash =
+                        guildMember.avatar ?? targetUser.avatar ?? null;
+                    const targetBannerHash =
+                        guildMember.banner ?? targetUser.banner ?? null;
 
-                    console.log("[CloneServerProfile] Target profile values", {
-                        targetNick,
-                        targetAvatarHash,
-                        targetBannerHash,
-                        targetBio,
-                    });
-
-                    // 2️⃣ Clone nickname
+                    // 2️⃣ Clone nickname/display name
                     if (targetNick != null) {
                         try {
                             await setMyNick(effectiveGuildId, targetNick);
                             clonedNick = true;
-                            console.log("[CloneServerProfile] Nickname set");
                         } catch (err: any) {
                             const code = err?.status ?? err?.statusCode;
                             const reason =
@@ -432,16 +371,12 @@ const userContextPatch: NavContextMenuPatchCallback = (
                                       : code === 429
                                         ? "rate limited"
                                         : "failed";
-                            failures.push(`nickname (${reason})`);
-                            console.warn(
-                                "[CloneServerProfile] Failed to set nickname",
-                                err,
-                            );
+                            failures.push(`display name (${reason})`);
                         }
                     }
-                    updateProgressToast(2, 4);
+                    updateProgressToast(2, 3);
 
-                    // 3️⃣ Clone server-specific avatar and banner
+                    // 3️⃣ Clone avatar and banner
                     let avatarDataUrl: string | undefined = undefined;
                     let bannerDataUrl: string | undefined = undefined;
 
@@ -452,13 +387,8 @@ const userContextPatch: NavContextMenuPatchCallback = (
                                 targetAvatarHash,
                             );
                             avatarDataUrl = await fetchAsDataUri(url);
-                            console.log("[CloneServerProfile] Avatar fetched");
                         } catch (err) {
                             failures.push("server avatar (download failed)");
-                            console.warn(
-                                "[CloneServerProfile] Failed to fetch avatar",
-                                err,
-                            );
                         }
                     }
 
@@ -469,17 +399,11 @@ const userContextPatch: NavContextMenuPatchCallback = (
                                 targetBannerHash,
                             );
                             bannerDataUrl = await fetchAsDataUri(url);
-                            console.log("[CloneServerProfile] Banner fetched");
                         } catch (err) {
                             failures.push("server banner (download failed)");
-                            console.warn(
-                                "[CloneServerProfile] Failed to fetch banner",
-                                err,
-                            );
                         }
                     }
 
-                    // Set guild profile media (avatar and banner)
                     if (
                         avatarDataUrl !== undefined ||
                         bannerDataUrl !== undefined
@@ -492,7 +416,6 @@ const userContextPatch: NavContextMenuPatchCallback = (
                             );
                             clonedAvatar = avatarDataUrl != null;
                             clonedBanner = bannerDataUrl != null;
-                            console.log("[CloneServerProfile] Guild media set");
                         } catch (err: any) {
                             const code = err?.status ?? err?.statusCode;
                             const reason =
@@ -507,53 +430,17 @@ const userContextPatch: NavContextMenuPatchCallback = (
                                 failures.push(`server avatar (${reason})`);
                             if (bannerDataUrl)
                                 failures.push(`server banner (${reason})`);
-                            console.warn(
-                                "[CloneServerProfile] Failed to set guild media",
-                                err,
-                            );
                         }
                     }
-                    updateProgressToast(3, 4);
 
-                    // 4️⃣ Clone bio (global profile)
-                    if (targetBio != null) {
-                        try {
-                            await setMyUserProfile(targetBio);
-                            clonedBio = true;
-                            console.log("[CloneServerProfile] Bio set");
-                        } catch (err: any) {
-                            const code = err?.status ?? err?.statusCode;
-                            const reason =
-                                code === 401
-                                    ? "unauthorized"
-                                    : code === 403
-                                      ? "forbidden"
-                                      : code === 429
-                                        ? "rate limited"
-                                        : "failed";
-                            failures.push(`bio (${reason})`);
-                            console.warn(
-                                "[CloneServerProfile] Failed to set bio",
-                                err,
-                            );
-                        }
-                    }
-                    updateProgressToast(4, 4);
-
-                    // Remove progress toast
+                    updateProgressToast(3, 3);
                     removeProgressToast();
 
-                    // 5️⃣ Result summary
+                    // Result summary
                     const parts: string[] = [];
-                    if (clonedNick) parts.push("nickname");
-                    if (clonedAvatar) parts.push("server avatar");
-                    if (clonedBanner) parts.push("server banner");
-                    if (clonedBio) parts.push("bio");
-
-                    console.log("[CloneServerProfile] Clone summary parts", {
-                        parts,
-                        failures,
-                    });
+                    if (clonedNick) parts.push("display name");
+                    if (clonedAvatar) parts.push("avatar");
+                    if (clonedBanner) parts.push("banner");
 
                     if (parts.length > 0 && failures.length === 0) {
                         showToast(
@@ -562,12 +449,12 @@ const userContextPatch: NavContextMenuPatchCallback = (
                         );
                     } else if (parts.length > 0 && failures.length > 0) {
                         showToast(
-                            `Cloned ${parts.join(", ")} from ${user.username}, but some failed: ${failures.join(" | ")}`,
+                            `Cloned ${parts.join(", ")}, but some failed: ${failures.join(" | ")}`,
                             Toasts.Type.MESSAGE,
                         );
                     } else {
                         showToast(
-                            `Failed to clone anything. ${failures.length ? failures.join(" | ") : "No profile data available."}`,
+                            `Failed to clone profile. ${failures.length ? failures.join(" | ") : "No profile data available."}`,
                             Toasts.Type.FAILURE,
                         );
                     }
@@ -587,7 +474,7 @@ const userContextPatch: NavContextMenuPatchCallback = (
 export default definePlugin({
     name: "CloneServerProfile",
     description:
-        "Right-click a member to clone their server profile (nickname, avatar, banner) and global profile (bio).",
+        "Right-click a member to clone their display name, avatar, and banner.",
     authors: [Devs.Vermin, Devs.Kravle],
     start() {},
     stop() {},
