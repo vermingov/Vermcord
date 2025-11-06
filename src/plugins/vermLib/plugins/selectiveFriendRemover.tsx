@@ -667,27 +667,17 @@ function openSelectiveFriendRemover() {
 }
 
 function createFriendsActionButton(onClick: () => void) {
-    const addFriend =
-        document.querySelector<HTMLElement>(
-            '[role="tab"][aria-label="Add Friend"]',
-        ) ||
-        document.querySelector<HTMLElement>(
-            '[aria-label="Add Friend"][role="tab"]',
-        );
+    const addFriend = document.querySelector<HTMLElement>(".addFriend__133bf");
     if (!addFriend) return null;
 
     const node = addFriend.cloneNode(true) as HTMLElement;
     node.id = "vermLib-selective-friend-remover-button";
+    node.className = node.className.replace(/addFriend__[a-z0-9]+/, "").trim();
     node.setAttribute("aria-label", "Remove Friends");
-    node.setAttribute("tabindex", "0");
-    node.setAttribute("role", "tab");
 
-    const labelSpan =
-        node.querySelector("span") || node.querySelector("[class*='label']");
+    const labelSpan = node.querySelector("span");
     if (labelSpan) {
         labelSpan.textContent = "Remove Friends";
-    } else {
-        node.textContent = "Remove Friends";
     }
 
     const activate = () => {
@@ -719,14 +709,7 @@ function ensureInjected() {
     );
     if (existing && existing.isConnected) return;
 
-    const addFriend =
-        document.querySelector<HTMLElement>(
-            '[role="tab"][aria-label="Add Friend"]',
-        ) ||
-        document.querySelector<HTMLElement>(
-            '[aria-label="Add Friend"][role="tab"]',
-        );
-
+    const addFriend = document.querySelector<HTMLElement>(".addFriend__133bf");
     if (!addFriend) return;
 
     existing?.remove();

@@ -53,43 +53,230 @@ if (IS_REPORTER) {
     require("./debug/runReporter");
 }
 
+const BUTTON_CLICK_SOUND =
+    "https://cdn.discordapp.com/attachments/1287309916909867070/1435824882280698006/ButtonClick.mp3?ex=690d5fa0&is=690c0e20&hm=fff0e8251321ee626e59ba33ff948816781028ef41f008feee131f764bef5fe4&";
+
+function playButtonSound() {
+    const audio = new Audio(BUTTON_CLICK_SOUND);
+    audio.volume = 0.3;
+    audio.play().catch(() => {});
+}
+
+function createCustomNotification(
+    title: string,
+    body: string,
+    onClick?: () => void,
+    isUpdateNotification: boolean = false,
+) {
+    const container = document.createElement("div");
+    container.id = `vencord-notification-${Date.now()}`;
+    container.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: min(360px, calc(100vw - 40px));
+        background: color-mix(in oklab, var(--background-secondary) 90%, black 10%);
+        border: 1px solid rgba(255, 255, 255, 0.03);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(10px);
+        padding: 16px;
+        z-index: 9999;
+        animation: vc-notify-slide-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif;
+        cursor: ${onClick ? "pointer" : "default"};
+    `;
+
+    const closeBtn = document.createElement("button");
+    closeBtn.style.cssText = `
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        cursor: pointer;
+        width: 20px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        padding: 0;
+    `;
+    closeBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    `;
+    closeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        playButtonSound();
+        container.style.animation =
+            "vc-notify-slide-out 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards";
+        setTimeout(() => container.remove(), 250);
+    });
+    closeBtn.addEventListener("mouseenter", () => {
+        closeBtn.style.color = "var(--header-primary)";
+    });
+    closeBtn.addEventListener("mouseleave", () => {
+        closeBtn.style.color = "var(--text-muted)";
+    });
+
+    const contentDiv = document.createElement("div");
+    contentDiv.style.cssText = `
+        padding-right: 24px;
+    `;
+
+    const titleDiv = document.createElement("div");
+    titleDiv.style.cssText = `
+        color: var(--header-primary);
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 4px;
+    `;
+    titleDiv.textContent = title;
+
+    const bodyDiv = document.createElement("div");
+    bodyDiv.style.cssText = `
+        color: white;
+        font-size: 13px;
+        margin-bottom: ${isUpdateNotification || onClick ? "12px" : "0"};
+    `;
+    bodyDiv.textContent = body;
+
+    contentDiv.appendChild(titleDiv);
+    contentDiv.appendChild(bodyDiv);
+
+    if (isUpdateNotification && onClick) {
+        const actionBtn = document.createElement("button");
+        actionBtn.style.cssText = `
+            background: var(--brand-500);
+            border: 1px solid rgba(88, 101, 242, 0.3);
+            border-radius: 6px;
+            color: white;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            box-shadow: 0 0 12px rgba(88, 101, 242, 0.4);
+        `;
+        actionBtn.textContent = "Restart";
+        actionBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            playButtonSound();
+            container.style.animation =
+                "vc-notify-slide-out 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards";
+            setTimeout(() => {
+                container.remove();
+                onClick();
+            }, 250);
+        });
+        actionBtn.addEventListener("mouseenter", () => {
+            actionBtn.style.transform = "translateY(-2px)";
+            actionBtn.style.boxShadow = "0 4px 16px rgba(88, 101, 242, 0.6)";
+        });
+        actionBtn.addEventListener("mouseleave", () => {
+            actionBtn.style.transform = "translateY(0)";
+            actionBtn.style.boxShadow = "0 0 12px rgba(88, 101, 242, 0.4)";
+        });
+        contentDiv.appendChild(actionBtn);
+    } else if (onClick) {
+        container.addEventListener("click", () => {
+            playButtonSound();
+            container.style.animation =
+                "vc-notify-slide-out 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards";
+            setTimeout(() => {
+                container.remove();
+                onClick();
+            }, 250);
+        });
+    }
+
+    container.appendChild(closeBtn);
+    container.appendChild(contentDiv);
+
+    // Add animations if not already present
+    if (!document.getElementById("vc-notify-animations")) {
+        const style = document.createElement("style");
+        style.id = "vc-notify-animations";
+        style.textContent = `
+            @keyframes vc-notify-slide-in {
+                from {
+                    opacity: 0;
+                    transform: translateX(400px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+            }
+            @keyframes vc-notify-slide-out {
+                from {
+                    opacity: 1;
+                    transform: translateX(0);
+                }
+                to {
+                    opacity: 0;
+                    transform: translateX(400px);
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    document.body.appendChild(container);
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        if (container.isConnected) {
+            container.style.animation =
+                "vc-notify-slide-out 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards";
+            setTimeout(() => container.remove(), 250);
+        }
+    }, 5000);
+}
+
+const originalShowNotification = showNotification;
+export function showNotification(data: NotificationData) {
+    // If it's permanent or has a custom color, use original
+    if (data.permanent || data.color) {
+        return originalShowNotification(data);
+    }
+
+    // Use custom notification theme
+    createCustomNotification(
+        data.title || "Notification",
+        data.body || "",
+        data.onClick,
+        false,
+    );
+}
+
 async function syncSettings() {
     // pre-check for local shared settings
-    if (
-        Settings.cloud.authenticated &&
-        !(await dsGet("Vencord_cloudSecret")) // this has been enabled due to local settings share or some other bug
-    ) {
-        // show a notification letting them know and tell them how to fix it
-        showNotification({
-            title: "Cloud Integrations",
-            body:
-                "We've noticed you have cloud integrations enabled in another client! Due to limitations, you will " +
-                "need to re-authenticate to continue using them. Click here to go to the settings page to do so!",
-            color: "var(--yellow-360)",
-            onClick: () => SettingsRouter.open("VencordCloud"),
-        });
+    if (Settings.cloud.authenticated && !(await dsGet("Vencord_cloudSecret"))) {
+        createCustomNotification(
+            "Cloud Integrations",
+            "We've noticed you have cloud integrations enabled in another client! Due to limitations, you will need to re-authenticate to continue using them.",
+            () => SettingsRouter.open("VencordCloud"),
+            false,
+        );
         return;
     }
 
-    if (
-        Settings.cloud.settingsSync && // if it's enabled
-        Settings.cloud.authenticated // if cloud integrations are enabled
-    ) {
+    if (Settings.cloud.settingsSync && Settings.cloud.authenticated) {
         if (localStorage.Vencord_settingsDirty) {
             await putCloudSettings();
             delete localStorage.Vencord_settingsDirty;
         } else if (await getCloudSettings(false)) {
-            // if we synchronized something (false means no sync)
-            // we show a notification here instead of allowing getCloudSettings() to show one to declutter the amount of
-            // potential notifications that might occur. getCloudSettings() will always send a notification regardless if
-            // there was an error to notify the user, but besides that we only want to show one notification instead of all
-            // of the possible ones it has (such as when your settings are newer).
-            showNotification({
-                title: "Cloud Settings",
-                body: "Your settings have been updated! Click here to restart to fully apply changes!",
-                color: "var(--green-360)",
-                onClick: relaunch,
-            });
+            createCustomNotification(
+                "Cloud Settings",
+                "Your settings have been updated! Click here to restart to fully apply changes!",
+                relaunch,
+                false,
+            );
         }
     }
 }
@@ -97,17 +284,18 @@ async function syncSettings() {
 let notifiedForUpdatesThisSession = false;
 
 async function runUpdateCheck() {
-    const notify = (data: NotificationData) => {
+    const notify = (title: string, onClick: () => void) => {
         if (notifiedForUpdatesThisSession) return;
         notifiedForUpdatesThisSession = true;
 
         setTimeout(
             () =>
-                showNotification({
-                    permanent: true,
-                    noPersist: true,
-                    ...data,
-                }),
+                createCustomNotification(
+                    title,
+                    "Click here to restart",
+                    onClick,
+                    true,
+                ),
             10_000,
         );
     };
@@ -119,20 +307,12 @@ async function runUpdateCheck() {
         if (Settings.autoUpdate) {
             await update();
             if (Settings.autoUpdateNotification) {
-                notify({
-                    title: "Vermcord has been updated!",
-                    body: "Click here to restart",
-                    onClick: relaunch,
-                });
+                notify("Vermcord has been updated!", relaunch);
             }
             return;
         }
 
-        notify({
-            title: "A Vencord update is available!",
-            body: "Click here to view the update",
-            onClick: openUpdaterModal!,
-        });
+        notify("A Vencord update is available!", openUpdaterModal!);
     } catch (err) {
         UpdateLogger.error("Failed to check for updates", err);
     }
@@ -147,9 +327,8 @@ async function init() {
     if (!IS_WEB && !IS_UPDATER_DISABLED) {
         runUpdateCheck();
 
-        // this tends to get really annoying, so only do this if the user has auto-update without notification enabled
         if (Settings.autoUpdate && !Settings.autoUpdateNotification) {
-            setInterval(runUpdateCheck, 1000 * 60 * 5); // 5 minutes
+            setInterval(runUpdateCheck, 1000 * 60 * 5);
         }
     }
 
@@ -182,7 +361,6 @@ document.addEventListener(
 
         startAllPlugins(StartAt.DOMContentLoaded);
 
-        // FIXME
         if (IS_DISCORD_DESKTOP && Settings.winNativeTitleBar && IS_WINDOWS) {
             createAndAppendStyle("vencord-native-titlebar-style").textContent =
                 "[class*=titleBar]{display: none!important}";
