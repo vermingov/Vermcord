@@ -21,7 +21,7 @@ export default definePlugin({
     name: "PerformanceFix",
     description: "Provides significant performance enhancements.",
     authors: [Devs.Vermin],
-    required: true,
+    required: false,
 
     currentGuildId: null as string | null,
     guildsWithHiddenChannels: new Map<string, number>(),
