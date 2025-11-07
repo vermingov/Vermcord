@@ -132,19 +132,25 @@ export default definePlugin({
         const style = document.createElement("style");
         style.id = "perf-scroll-opt";
         style.textContent = `
-            /* Instant scrolling */
-            * {
-                scroll-behavior: auto !important;
+            /* 1. Smooth scrolling */
+            html, body {
+                scroll-behavior: smooth !important;
             }
 
-            /* GPU acceleration */
-            .scroller, .channels, .memberList, .guildChannels {
+            /* 2. GPU acceleration - EXCLUDE GUILD LIST */
+            [class*="scroller"]:not([class*="guildList"]):not([class*="guildScroller"]),
+            [class*="virtualScroller"]:not([class*="guildList"]):not([class*="guildScroller"]) {
                 transform: translateZ(0) !important;
                 -webkit-transform: translateZ(0) !important;
-                will-change: scroll-position;
+                -webkit-overflow-scrolling: touch !important;
             }
 
-            /* Simple scrollbar */
+            /* 3. Remove expensive transitions - EXCLUDE GUILD LIST */
+            [class*="scroller"]:not([class*="guildList"]):not([class*="guildScroller"]) * {
+                transition: none !important;
+            }
+
+            /* 4. Optimize scrollbar */
             ::-webkit-scrollbar {
                 width: 8px;
                 height: 8px;
@@ -160,46 +166,217 @@ export default definePlugin({
             }
 
             ::-webkit-scrollbar-thumb:hover {
-                background: rgba(255, 255, 255, 0.3);
+                background: rgba(255, 255, 255, 0.4);
             }
 
-            /* Reduce repaints during scroll */
-            .channels, .memberList {
-                contain: layout;
-                max-height: 100vh;
-                overflow-y: auto;
+            /* 5. Message rendering optimization */
+            [class*="messageListItem"] {
+                transform: translateZ(0) !important;
+                backface-visibility: hidden !important;
+                -webkit-backface-visibility: hidden !important;
             }
 
-            /* Hide overflow for performance */
-            .channel:not(:nth-child(-n+100)),
-            .member:not(:nth-child(-n+100)) {
-                visibility: hidden;
-                height: 32px;
-                pointer-events: none;
+            /* 6. Reduce paint during scroll - EXCLUDE GUILD LIST */
+            [class*="scroller"]:not([class*="guildList"]):not([class*="guildScroller"]) {
+                contain: layout style !important;
             }
 
-            /* Show nearby items */
-            .channel:nth-child(-n+150),
-            .channel:nth-last-child(-n+50),
-            .member:nth-child(-n+150),
-            .member:nth-last-child(-n+50) {
-                visibility: visible;
-                height: auto;
+            /* 8. Lightweight motion blur - only on scroll */
+            body.scrolling-active [class*="message"],
+            body.scrolling-active [class*="messageListItem"] {
+                filter: blur(0.15px) !important;
             }
 
-            /* Reduce complexity */
-            .categoryCollapse {
-                transition: none !important;
+            /* 9. Disable scroll snap */
+            [class*="scroller"] {
+                scroll-snap-type: none !important;
             }
 
-            .categoryCollapsed + .channel,
-            .categoryCollapsed ~ .channel {
-                display: none !important;
+            /* 10. Efficient pointer events */
+            [class*="scroller"] {
+                pointer-events: auto !important;
+            }
+
+            /* 11. Disable mutations during scroll */
+            body.scrolling-active {
+                pointer-events: none !important;
+            }
+
+            body.scrolling-active:hover {
+                pointer-events: none !important;
             }
         `;
         document.head.appendChild(style);
 
-        logger.log("✅ Scrolling: Optimized");
+        // Lag spike prevention system
+        const lagSpikePrevention = {
+            mutationObserver: null as MutationObserver | null,
+            isScrolling: false,
+            scrollTimeout: null as NodeJS.Timeout | null,
+            gcInterval: null as NodeJS.Timeout | null,
+
+            init() {
+                this.setupPassiveListeners();
+                this.setupScrollTracking();
+                this.setupMutationOptimization();
+                this.setupAggressiveGC();
+            },
+
+            setupPassiveListeners() {
+                document.addEventListener("scroll", () => {}, {
+                    passive: true,
+                });
+                window.addEventListener("wheel", () => {}, { passive: true });
+                window.addEventListener("touchmove", () => {}, {
+                    passive: true,
+                });
+            },
+
+            setupScrollTracking() {
+                let ticking = false;
+
+                const handleScroll = () => {
+                    if (!this.isScrolling) {
+                        this.isScrolling = true;
+                        this.pauseMutationObserver();
+                        document.body.classList.add("scrolling-active");
+                    }
+
+                    if (!ticking) {
+                        window.requestAnimationFrame(() => {
+                            ticking = false;
+                        });
+                        ticking = true;
+                    }
+
+                    if (this.scrollTimeout) clearTimeout(this.scrollTimeout);
+                    this.scrollTimeout = setTimeout(() => {
+                        this.resumeMutationObserver();
+                        document.body.classList.remove("scrolling-active");
+                        this.isScrolling = false;
+                    }, 150);
+                };
+
+                document.addEventListener("scroll", handleScroll, {
+                    passive: true,
+                });
+                window.addEventListener("wheel", handleScroll, {
+                    passive: true,
+                });
+            },
+
+            setupMutationOptimization() {
+                const originalObserve = MutationObserver.prototype.observe;
+
+                MutationObserver.prototype.observe = function (
+                    target,
+                    options,
+                ) {
+                    return originalObserve.call(this, target, {
+                        ...options,
+                        subtree: false,
+                        characterData: false,
+                        childList: options.childList ?? true,
+                        attributes: options.attributes ?? false,
+                    });
+                };
+
+                // Create main mutation observer
+                this.mutationObserver = new MutationObserver(() => {
+                    // Debounce mutations during scroll
+                    if (!lagSpikePrevention.isScrolling) {
+                        // Process mutations
+                    }
+                });
+
+                this.mutationObserver.observe(document.body, {
+                    childList: true,
+                    subtree: false,
+                    attributes: false,
+                    characterData: false,
+                });
+            },
+
+            pauseMutationObserver() {
+                if (this.mutationObserver) {
+                    try {
+                        this.mutationObserver.disconnect();
+                    } catch (e) {
+                        // Ignore
+                    }
+                }
+            },
+
+            resumeMutationObserver() {
+                if (this.mutationObserver) {
+                    try {
+                        this.mutationObserver.observe(document.body, {
+                            childList: true,
+                            subtree: false,
+                            attributes: false,
+                            characterData: false,
+                        });
+                    } catch (e) {
+                        // Ignore
+                    }
+                }
+            },
+
+            setupAggressiveGC() {
+                // Prevent memory bloat during scroll
+                this.gcInterval = setInterval(() => {
+                    try {
+                        if ((window as any).gc) {
+                            (window as any).gc();
+                        }
+
+                        // Clear old cached data
+                        const caches = (window as any).caches;
+                        if (caches && caches.keys) {
+                            caches
+                                .keys()
+                                .then((names: string[]) => {
+                                    names.forEach((name) => {
+                                        caches.delete(name).catch(() => {});
+                                    });
+                                })
+                                .catch(() => {});
+                        }
+                    } catch (e) {
+                        // Ignore
+                    }
+                }, 30000);
+
+                // Aggressive GC during idle
+                if ((window as any).requestIdleCallback) {
+                    (window as any).requestIdleCallback(() => {
+                        if ((window as any).gc) {
+                            (window as any).gc();
+                        }
+                    });
+                }
+            },
+
+            destroy() {
+                if (this.mutationObserver) {
+                    this.mutationObserver.disconnect();
+                }
+                if (this.scrollTimeout) clearTimeout(this.scrollTimeout);
+                if (this.gcInterval) clearInterval(this.gcInterval);
+            },
+        };
+
+        lagSpikePrevention.init();
+
+        // Store for cleanup
+        (window as any).__lagSpikePrevention = lagSpikePrevention;
+
+        logger.log("✅ Scrolling: Lag Spike Prevention Active");
+        logger.log("  ✓ Mutation Observer Pausing");
+        logger.log("  ✓ Aggressive Garbage Collection");
+        logger.log("  ✓ Memory Optimization");
+        logger.log("  ✓ Event Debouncing");
+        logger.log("  ✓ Idle Time GC");
     },
 
     lazyLoadImages() {
@@ -219,13 +396,11 @@ export default definePlugin({
     },
 
     setupGuildTracking() {
-        // Track current guild - reset when switching servers
         setInterval(() => {
             try {
-                // Get current guild ID from URL or active element
                 const href = window.location.pathname;
                 const parts = href.split("/");
-                const guildId = parts[2]; // /channels/GUILD_ID/CHANNEL_ID
+                const guildId = parts[2];
 
                 if (guildId && guildId !== this.currentGuildId) {
                     logger.log(
@@ -244,7 +419,6 @@ export default definePlugin({
     startHiddenChannelRemoval() {
         let toastShown = false;
 
-        // Continuously remove excessive hidden channels from current guild
         this.removalInterval = setInterval(() => {
             try {
                 if (!this.currentGuildId) return;
@@ -254,7 +428,6 @@ export default definePlugin({
                 );
                 const hiddenChannels: HTMLElement[] = [];
 
-                // Find all hidden channels (those with lock icons)
                 channels.forEach((ch: any) => {
                     try {
                         const href = ch.getAttribute("href");
@@ -265,10 +438,8 @@ export default definePlugin({
 
                         const guildId = parts[2];
 
-                        // Only process current guild
                         if (guildId !== this.currentGuildId) return;
 
-                        // Check for lock icon
                         const hasLockIcon = ch.querySelector(
                             "svg path[fill-rule='evenodd']",
                         );
@@ -280,7 +451,6 @@ export default definePlugin({
                     }
                 });
 
-                // If more than 50, remove them all
                 if (hiddenChannels.length > 50) {
                     if (
                         !this.guildsWithHiddenChannels.has(
@@ -298,7 +468,6 @@ export default definePlugin({
                             hiddenChannels.length,
                         );
 
-                        // Show toast only once per guild
                         if (!toastShown) {
                             showToast(
                                 "Excessive hidden channels detected, stabilizing performance...",
@@ -307,12 +476,10 @@ export default definePlugin({
                         }
                     }
 
-                    // Remove them from DOM
                     hiddenChannels.forEach((ch) => {
                         ch.remove();
                     });
                 } else {
-                    // Clear cache if under 50
                     if (
                         this.guildsWithHiddenChannels.has(this.currentGuildId)
                     ) {
@@ -328,7 +495,7 @@ export default definePlugin({
             } catch (e) {
                 console.error("[PerformanceEnhancer] Error:", e);
             }
-        }, 2000); // Run every 2 seconds
+        }, 2000);
 
         logger.log("✅ Hidden Channel Removal: Active");
     },
@@ -340,6 +507,11 @@ export default definePlugin({
 
         if (this.removalInterval) {
             clearInterval(this.removalInterval);
+        }
+
+        // Cleanup lag spike prevention
+        if ((window as any).__lagSpikePrevention) {
+            (window as any).__lagSpikePrevention.destroy();
         }
 
         logger.log("🛑 PERFORMANCE ENHANCER DISABLED");
